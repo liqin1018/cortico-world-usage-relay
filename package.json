@@ -4,6 +4,15 @@
   "type": "module",
   "description": "Token 到底花在哪了？每小时曲线、点柱子看每分钟、模型分布，一眼看清；同一个模型，不同中转站能差几倍价——一键批量测速、按品牌对照延迟与价格；账单还能逐项体检：单价、缓存、有没有偷换模型。全本地统计，不花一个 token。\n\nQQ 交流群：745879632",
   "license": "MIT",
+  "author": "lutsing",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liqin1018/cortico-world-usage-relay.git"
+  },
+  "homepage": "https://github.com/liqin1018/cortico-world-usage-relay#readme",
+  "bugs": {
+    "url": "https://github.com/liqin1018/cortico-world-usage-relay/issues"
+  },
   "keywords": [
     "cortico-world",
     "coopanion",
@@ -47,5 +56,9 @@
     "icon.svg",
     "describe.json",
     "README.md"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
 }
