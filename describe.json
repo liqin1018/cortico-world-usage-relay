@@ -1,0 +1,62 @@
+{
+  "tools": [
+    {
+      "name": "tokenboard_usage",
+      "description": "查 Coopanion 自己的 token 用量（读本机 usage.jsonl 汇总，这次调用本身不花 token）：默认回今天+最近 7 天的调用量与总 token、今天的高峰时段、用量最大的几个模型。主人问「今天用了多少 token」「最近用量怎么样」「哪个模型烧得最多」时用。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "type": "string",
+            "maxLength": 10,
+            "description": "可选，YYYY-MM-DD；给了就返回那一天的逐小时明细，不给默认今天。"
+          }
+        },
+        "required": []
+      },
+      "tags": [
+        "usage"
+      ],
+      "summary": {
+        "zh": "看自己这几天用了多少 token。",
+        "en": "Check Coopanion's own token usage."
+      }
+    },
+    {
+      "name": "tokenboard_setalert",
+      "description": "设置每天 token 用量提醒阈值（本机 usage.jsonl 口径，这次调用不花 token）。设了之后，当天总用量（输入+输出）一旦超过阈值就提醒主人一次，每天最多提醒一次；设 0 关闭。主人说「token 超过五千万提醒我」「把用量提醒关掉」时用。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "dailyTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "每天的总 token 阈值（输入+输出）；0 = 关闭提醒。"
+          }
+        },
+        "required": [
+          "dailyTokens"
+        ]
+      },
+      "tags": [
+        "usage"
+      ],
+      "summary": {
+        "zh": "设每天 token 用量提醒阈值。",
+        "en": "Set the daily token usage alert threshold."
+      }
+    }
+  ],
+  "events": [
+    {
+      "type": "tokenboard.alert",
+      "description": {
+        "zh": "当日 token 总用量（输入+输出）超过主人设置的阈值时，每天提醒一次。",
+        "en": "Fires once per day when daily token usage exceeds the owner-set threshold."
+      },
+      "trigger": "debounce"
+    }
+  ]
+}
