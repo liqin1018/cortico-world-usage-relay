@@ -670,6 +670,7 @@ function mountSpeed(ctx) {
     opts: { runs: 30, warmup: 2, max_tokens: 1024, thinking: 'default', prompt: '' },
     run: null,
     timer: null,
+    hint: '',
   };
 
   function compareTarget(id) {
@@ -696,6 +697,49 @@ function mountSpeed(ctx) {
 
   function currentTarget() {
     return state.targets.find((t) => t.id === state.sel) || null;
+  }
+
+  /** 正在测的目标：只有 run.status === 'running' 时才算，测完/取消后不再算。 */
+  function runningTarget() {
+    const run = state.run;
+    if (!run || run.status !== 'running') return null;
+    const item = run.queue[run.curIdx];
+    return item ? item.target : null;
+  }
+
+  /** 选中某个站。正在测别的站就先停掉——否则会出现“选中的是 B、跑的还是 A”。 */
+  async function selectTarget(id) {
+    const rt = runningTarget();
+    if (rt && rt.id !== id) {
+      const name = rt.name;
+      await cancelRun();
+      // 换站时把上一个站的进度清掉，避免“已经在测 B，下面还挂着 A 的进度条”
+      state.run = null;
+      state.hint = '已停止「' + name + '」的测速。';
+    } else {
+      state.hint = '';
+    }
+    state.sel = id;
+    render();
+  }
+
+  /** 直接测某个站（卡片上的「测试」、单个开始都用它）。 */
+  async function startSingle(id) {
+    const t = state.targets.find((x) => x.id === id);
+    if (!t) return;
+    const rt = runningTarget();
+    if (rt) {
+      await cancelRun();
+      state.hint = rt.id === id ? '' : '已停止「' + rt.name + '」的测速。';
+    } else {
+      state.hint = '';
+    }
+    state.sel = id;
+    stopPoll();
+    state.run = makeRun([t], true);
+    render();
+    kick();
+    focusRun();
   }
 
   function vendorName(key) {
@@ -869,14 +913,12 @@ function mountSpeed(ctx) {
       if (p.verdict && p.verdict.why) card.append(el('div', p.verdict.why, 'tb-rh-pickcard-why'));
       card.tabIndex = 0;
       card.addEventListener('click', () => {
-        state.sel = p.id;
-        render();
+        void selectTarget(p.id);
       });
       card.addEventListener('keydown', (ev) => {
         if (ev.key === 'Enter' || ev.key === ' ') {
           ev.preventDefault();
-          state.sel = p.id;
-          render();
+          void selectTarget(p.id);
         }
       });
       wrap.append(card);
@@ -893,14 +935,12 @@ function mountSpeed(ctx) {
     );
     card.tabIndex = 0;
     card.addEventListener('click', () => {
-      state.sel = t.id;
-      render();
+      void selectTarget(t.id);
     });
     card.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' || ev.key === ' ') {
         ev.preventDefault();
-        state.sel = t.id;
-        render();
+        void selectTarget(t.id);
       }
     });
 
@@ -964,9 +1004,7 @@ function mountSpeed(ctx) {
       }),
       rhBtn('测试', 'tb-rh-link', (ev) => {
         ev.stopPropagation();
-        state.sel = t.id;
-        render();
-        focusRun();
+        void startSingle(t.id);
       }),
       rhBtn('删除', 'tb-rh-link danger', (ev) => {
         ev.stopPropagation();
@@ -1114,7 +1152,7 @@ function mountSpeed(ctx) {
       thinking: state.opts.thinking,
       prompt: state.opts.prompt || '',
     });
-    if (state.run !== run) return;
+    if (state.run !== run || run.status === 'cancelled') return;
     if (!r.ok) {
       item.status = 'error';
       item.err = r.error || '启动失败';
@@ -1134,7 +1172,8 @@ function mountSpeed(ctx) {
     const run = state.run;
     if (!run || !run.job) return;
     const r = await rhGet(ctx, '/api/bench/' + run.job);
-    if (state.run !== run) return;
+    // 取消/换目标后，之前发出去的轮询回来不能再把状态写回 running
+    if (state.run !== run || run.status === 'cancelled') return;
     const item = run.queue[run.curIdx];
     if (!r.ok) {
       run.err = r.error || '读不到测速进度';
@@ -1189,6 +1228,7 @@ function mountSpeed(ctx) {
     if (run.job) await rhPost(ctx, '/api/bench/cancel', { job_id: run.job });
     stopPoll();
     run.status = 'cancelled';
+    run.job = '';
     for (const it of run.queue) if (it.status === 'run') it.status = 'wait';
     render();
   }
@@ -1202,8 +1242,18 @@ function mountSpeed(ctx) {
     sec.classList.add('tb-rh-runsec');
     const run = state.run;
     const running = !!run && run.status === 'running';
-    const cur = run && run.queue[run.curIdx] ? run.queue[run.curIdx].target : currentTarget();
-    if (cur) sh.append(el('span', '当前：' + cur.name, 'tb-rh-sec-sub'));
+    const rt = runningTarget();
+    const sel = currentTarget();
+    const cur = rt || sel;
+    if (rt) {
+      sh.append(el('span', '正在测：' + rt.name, 'tb-rh-cur'));
+      if (sel && sel.id !== rt.id) {
+        sh.append(el('span', '已选：' + sel.name + '（点它会先停掉当前测速）', 'tb-rh-hint'));
+      }
+    } else if (sel) {
+      sh.append(el('span', '当前：' + sel.name, 'tb-rh-cur'));
+    }
+    if (state.hint) sh.append(el('span', state.hint, 'tb-rh-hint good'));
     if (run && run.queue.length > 1) {
       const close = rhBtn('收起', 'tb-ghost', () => {
         if (running) return;
@@ -1279,13 +1329,14 @@ function mountSpeed(ctx) {
     form.append(promptBox);
 
     const go = rhBtn(running ? '测速中…' : '开始测试', 'tb-primary', () => {
-      if (!cur || running) return;
+      if (!sel || running) return;
+      state.hint = '';
       stopPoll();
-      state.run = makeRun([cur], true);
+      state.run = makeRun([sel], true);
       render();
       kick();
     });
-    go.disabled = !cur || running;
+    go.disabled = !sel || running;
     form.append(go);
     sb.append(form);
     sb.append(
@@ -1348,7 +1399,7 @@ function mountSpeed(ctx) {
     if (run && run.err) sb.append(el('div', run.err, 'tb-rh-err'));
 
     /* 当前目标最近一次结果 */
-    if (cur && !running) sb.append(renderLast(cur));
+    if (sel && !running) sb.append(renderLast(sel));
     return sec;
   }
 

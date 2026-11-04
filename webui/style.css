@@ -2505,3 +2505,33 @@
   opacity: 0.6;
   cursor: default;
 }
+
+/* 测速区：当前正在测 / 已选提示 */
+.tb-rh-hint {
+  font-size: 11.5px;
+  color: #b45309;
+  background: #fff8ea;
+  border: 1px solid #fbe6bd;
+  border-radius: 6px;
+  padding: 2px 7px;
+  line-height: 1.5;
+}
+
+.tb-rh-hint.good {
+  color: #15803d;
+  background: #f0fbf4;
+  border-color: #ccf0da;
+}
+
+/* 测速区：当前选中的中转站 */
+.tb-rh-cur {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #1e5fd0;
+  background: #eef5ff;
+  border: 1px solid #d6e6ff;
+  border-radius: 99px;
+  padding: 2px 9px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
