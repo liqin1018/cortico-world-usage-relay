@@ -1,0 +1,2518 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>中转站对照台</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --line:#e4e7eb; --text:#171b21; --muted:#6b7280;
+    --accent:#2f6fed; --good:#16a34a; --warn:#d97706; --bad:#dc2626;
+    --mono:ui-monospace,SFMono-Regular,"Cascadia Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+  header{height:56px;display:flex;align-items:center;gap:14px;padding:0 20px;
+         background:var(--card);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+  header h1{font-size:15px;font-weight:600;margin:0}
+  header .sub{color:var(--muted);font-size:12px}
+  main{display:grid;grid-template-columns:300px 1fr;min-height:calc(100vh - 56px)}
+  aside{background:var(--card);border-right:1px solid var(--line);padding:14px 12px;overflow:auto;
+        max-height:calc(100vh - 56px);position:sticky;top:56px}
+  aside h2{font-size:12px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;
+           margin:14px 0 8px 6px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .brands{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:4px}
+  .chip{font-size:12px;padding:3px 9px;border:1px solid var(--line);border-radius:20px;
+        cursor:pointer;background:#fff;color:#475569;white-space:nowrap}
+  .chip:hover{border-color:#c7d2fe}
+  .chip.on{background:#eef2ff;border-color:#c7d2fe;color:#3b5bdb;font-weight:600}
+  .chip span{color:#94a3b8;margin-left:3px}
+  .vhead{font-size:11px;color:var(--muted);margin:10px 0 5px 6px;letter-spacing:.04em}
+  .titem{padding:9px 10px;border:1px solid var(--line);border-radius:9px;margin-bottom:7px;
+         cursor:pointer;transition:.15s;background:#fff;position:relative}
+  .titem:hover{border-color:#c7d2fe;background:#fbfcff}
+  .titem.on{border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,111,237,.10)}
+  .titem .n{font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:13px}
+  .titem .u{color:var(--muted);font-size:11px;word-break:break-all;margin-top:2px}
+  .ops{display:flex;gap:4px;margin-top:6px;opacity:0;transition:.12s}
+  .titem:hover .ops{opacity:1}
+  .ops button{padding:2px 8px;font-size:11px;border-radius:5px;line-height:1.6}
+  .badge{font-size:10.5px;padding:1px 6px;border-radius:20px;background:#eef2ff;color:#3b5bdb;white-space:nowrap}
+  .badge.full{background:#f1f5f9;color:#64748b}
+  .badge.base{background:#dcfce7;color:#15803d}
+  .badge.billed{background:#e0f2fe;color:#0369a1}
+  .sec{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  .sec h3{margin:0 0 12px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+  #work{padding:18px 20px;overflow:auto}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field label{font-size:11.5px;color:var(--muted)}
+  input,select,textarea{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:7px;
+                        background:#fff;color:var(--text);outline:none;width:100%}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,111,237,.10)}
+  button{font:inherit;padding:8px 14px;border-radius:7px;border:1px solid var(--line);
+         background:#fff;cursor:pointer;color:var(--text)}
+  button:hover{background:#f8fafc}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.primary:hover{background:#2559c9}
+  button.danger{color:var(--bad);border-color:#fecaca}
+  button.danger:hover{background:#fef2f2}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:10px}
+  .card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fff}
+  .card .k{font-size:11.5px;color:var(--muted);margin-bottom:4px}
+  .card .v{font-size:21px;font-weight:650;font-family:var(--mono);letter-spacing:-.02em}
+  .card .v small{font-size:11px;font-weight:400;color:var(--muted);font-family:inherit;margin-left:3px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{font-size:11.5px;color:var(--muted);font-weight:600;background:#fafbfc}
+  th:first-child,td:first-child{text-align:left}
+  td.num{font-family:var(--mono)}
+  tbody tr:hover{background:#fafbff}
+  .good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)} .muted{color:var(--muted)}
+  .tag{font-size:11px;padding:1px 6px;border-radius:4px;background:#f1f5f9;color:#475569}
+  .vbadge{font-size:11.5px;padding:2px 8px;border-radius:5px;font-weight:600}
+  .vbadge.rec{background:#dcfce7;color:#15803d}
+  .vbadge.ok{background:#fef3c7;color:#b45309}
+  .vbadge.bad{background:#fee2e2;color:#b91c1c}
+  .vbadge.base,.vbadge.none,.vbadge.the{background:#f1f5f9;color:#64748b}
+  .bar{height:6px;background:#eef2f7;border-radius:3px;overflow:hidden;margin-top:8px}
+  .bar > i{display:block;height:100%;background:var(--accent);width:0;transition:width .25s}
+  .log{font-family:var(--mono);font-size:11.5px;color:var(--muted);max-height:130px;overflow:auto;
+       background:#fbfcfd;border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:10px;white-space:pre-wrap}
+  .empty{color:var(--muted);font-size:13px;padding:18px;text-align:center}
+  .hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.7}
+  .flex{display:flex;align-items:center;gap:8px}
+  .spacer{flex:1}
+  .vgroup{margin-bottom:18px}
+  .vgroup:last-child{margin-bottom:0}
+  .vghead{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .vghead b{font-size:13px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;border-radius:0;padding:6px 12px;font-size:12.5px;background:#fff}
+  .seg button.on{background:var(--accent);color:#fff;font-weight:600}
+  .rec-hero{border:1px solid #bbf7d0;background:linear-gradient(180deg,#f6fffa,#fff);
+            border-radius:10px;padding:14px 16px;margin-bottom:12px}
+  .rec-hero .t{font-size:15px;font-weight:650;display:flex;align-items:center;gap:8px}
+  .rec-hero .w{font-size:12.5px;color:#475569;margin-top:4px;line-height:1.6}
+  .rec-hero .m{display:flex;gap:18px;margin-top:10px;flex-wrap:wrap}
+  .rec-hero .m div{font-size:11.5px;color:var(--muted)}
+  .rec-hero .m b{display:block;font-size:16px;color:var(--text);font-family:var(--mono);margin-top:2px}
+  .rec-list{display:flex;flex-direction:column;gap:6px}
+  .rec-line{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:7px 10px;
+            border:1px solid var(--line);border-radius:8px}
+  .rec-line .nm{font-weight:600}
+  .modal{position:fixed;inset:0;background:rgba(15,23,42,.32);display:none;z-index:50;
+         align-items:flex-start;justify-content:center;padding:60px 16px;overflow:auto}
+  .modal.on{display:flex}
+  .sheet{background:#fff;border-radius:14px;width:100%;max-width:560px;padding:18px 20px;
+         box-shadow:0 20px 50px rgba(15,23,42,.18)}
+  .sheet h3{margin:0 0 14px;font-size:15px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  canvas{width:100%;height:190px;display:block}
+  .recon{display:flex;gap:14px;align-items:flex-end;margin-top:14px;padding-top:12px;
+         border-top:1px dashed var(--line);flex-wrap:wrap}
+  .est{color:var(--warn);font-size:11px}
+  .tabs{display:flex;gap:2px;margin-bottom:14px;background:#fff;border:1px solid var(--line);
+        border-radius:10px;padding:4px;width:fit-content}
+  .tabs button{border:0;background:transparent;padding:7px 18px;border-radius:7px;
+               font-size:13px;color:#475569;cursor:pointer;font-weight:500}
+  .tabs button.on{background:var(--accent);color:#fff;font-weight:600}
+  .tabs button:hover:not(.on){background:#f1f5f9}
+  .score{display:flex;align-items:center;gap:16px;padding:14px 16px;border-radius:10px;
+         border:1px solid var(--line);margin-bottom:10px;flex-wrap:wrap}
+  .score .n{font-size:38px;font-weight:700;font-family:var(--mono);line-height:1;min-width:64px}
+  .score .txt{flex:1;min-width:220px}
+  .score .txt b{font-size:15px;display:block;margin-bottom:3px}
+  .score .txt span{font-size:12.5px;color:var(--muted);line-height:1.6}
+  .score.good{background:#f6fffa;border-color:#bbf7d0}
+  .score.good .n{color:var(--good)}
+  .score.warn{background:#fffbeb;border-color:#fde68a}
+  .score.warn .n{color:#b45309}
+  .score.bad{background:#fef2f2;border-color:#fecaca}
+  .score.bad .n{color:var(--bad)}
+  .score.thin{background:#f8fafc}
+  .score.thin .n{color:#94a3b8}
+  .chk{display:grid;grid-template-columns:18px 104px 1fr;gap:10px;padding:10px 2px;
+       border-bottom:1px solid var(--line);font-size:12.5px;align-items:start}
+  .chk:last-child{border-bottom:0}
+  .chk .dot{width:9px;height:9px;border-radius:50%;margin-top:7px;background:#cbd5e1;
+            display:block}
+  .chk.pass .dot{background:var(--good)}
+  .chk.warn .dot{background:var(--warn)}
+  .chk.fail .dot{background:var(--bad);box-shadow:0 0 0 3px rgba(220,38,38,.15)}
+  .chk .t{font-weight:600;padding-top:2px}
+  .chk .d{color:#334155;line-height:1.65}
+  .chk .h{color:var(--muted);margin-top:3px;font-size:12px;line-height:1.6}
+  .chk.fail .t{color:var(--bad)}
+  .chk.warn .t{color:#b45309}
+  .chk.skip{opacity:.5}
+  textarea{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:7px;
+           width:100%;resize:vertical;min-height:104px;font-family:var(--mono);font-size:12px;
+           outline:none;line-height:1.6}
+  textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,111,237,.10)}
+  .note{font-size:12px;color:#475569;background:#f8fafc;border:1px solid var(--line);
+        border-radius:7px;padding:8px 10px;margin-top:8px;line-height:1.7}
+  .note.bad{background:#fef2f2;border-color:#fecaca;color:#b91c1c}
+  .note.warn{background:#fffbeb;border-color:#fde68a;color:#92400e}
+
+  /* ================= 清爽化覆盖：留白 / 柔和卡片 / 可视化 ================= */
+  :root{
+    --bg:#f5f6f8; --card:#fff; --line:#eceff4; --text:#131927; --muted:#79838f;
+    --accent:#3563e9; --good:#12a150; --warn:#d97706; --bad:#e5484d;
+    --shadow:0 1px 2px rgba(16,24,40,.04), 0 10px 28px -16px rgba(16,24,40,.18);
+  }
+  body{font-size:14px;line-height:1.62;-webkit-font-smoothing:antialiased}
+  header{height:64px;padding:0 28px;border-bottom:1px solid var(--line);
+         background:rgba(255,255,255,.88);backdrop-filter:saturate(180%) blur(10px)}
+  header h1{font-size:16px;letter-spacing:-.01em}
+  header .sub{font-size:12.5px}
+  main{grid-template-columns:322px 1fr;min-height:calc(100vh - 64px)}
+  aside{max-height:calc(100vh - 64px);top:64px;padding:20px 14px 96px;border-right:1px solid var(--line)}
+  aside h2{margin:20px 0 10px 8px;font-size:11px;letter-spacing:.1em}
+  #work{padding:26px 30px 72px;max-width:1220px;margin:0 auto;width:100%}
+  .sec{border-radius:16px;padding:24px 26px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .sec h3{font-size:15px;margin-bottom:18px;letter-spacing:-.01em}
+  .sec h3::before{content:"";width:3px;height:15px;border-radius:2px;background:var(--accent);
+                  display:inline-block;margin-right:2px;opacity:.85}
+  .card{border-radius:12px;padding:16px 18px;border-color:#eef1f6;
+        background:linear-gradient(180deg,#fff,#fcfdff)}
+  .card .v{font-size:23px}
+  table{font-size:13px}
+  th,td{padding:12px 14px}
+  th{background:#fafbfd;font-weight:600;letter-spacing:.02em}
+  tbody tr:hover{background:#fafbff}
+  .tabs{border-radius:12px;padding:5px;box-shadow:var(--shadow);margin-bottom:18px}
+  .tabs button{padding:8px 22px;border-radius:9px;font-size:13.5px}
+  .titem{padding:12px 12px;border-radius:11px;margin-bottom:8px;border-color:#eef1f6;
+         display:flex;gap:10px;align-items:flex-start}
+  .titem:hover{box-shadow:0 2px 10px -6px rgba(16,24,40,.24)}
+  .titem.on{border-color:var(--accent);box-shadow:0 0 0 3px rgba(53,99,233,.10)}
+  .titem.on::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:3px;
+                    border-radius:0 3px 3px 0;background:var(--accent)}
+  .titem .tmain{flex:1;min-width:0}
+  .titem .n{font-size:13px}
+  .chip{padding:4px 11px;border-color:#eef1f6}
+  .badge,.tag{font-weight:500}
+  .vbadge{padding:3px 10px;border-radius:20px;font-size:11.5px}
+  .empty{padding:26px;font-size:13px}
+
+  /* ---- 勾选框 ---- */
+  .pick{display:flex;align-items:center;padding-top:2px}
+  .pick input{appearance:none;-webkit-appearance:none;width:17px;height:17px;margin:0;
+              border:1.5px solid #cfd6df;border-radius:5px;background:#fff;cursor:pointer;
+              transition:.15s;position:relative;flex:none}
+  .pick input:hover{border-color:var(--accent)}
+  .pick input:checked{background:var(--accent);border-color:var(--accent)}
+  .pick input:checked::after{content:"";position:absolute;left:5px;top:1.5px;width:5px;height:9px;
+              border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+
+  /* ---- 侧栏底部批量条 ---- */
+  .selbar{position:sticky;bottom:-96px;margin:14px -14px -96px;padding:12px 14px 14px;
+          background:rgba(255,255,255,.94);backdrop-filter:blur(8px);
+          border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;z-index:5}
+  .selbar .cnt{font-size:12.5px;color:var(--muted)}
+  .selbar .cnt b{color:var(--accent);font-size:14px;font-family:var(--mono)}
+  .selbar button{padding:7px 12px;font-size:12.5px;border-radius:8px}
+  .selbar .spacer{flex:1}
+
+  /* ---- 价格条（可视化核心） ---- */
+  .ptrack{position:relative;height:9px;background:#eef2f7;border-radius:6px;flex:1;min-width:80px}
+  .ptrack i{display:block;height:100%;border-radius:6px;min-width:3px;
+            background:linear-gradient(90deg,#93b4fb,#3563e9);transition:width .4s}
+  .ptrack i.good{background:linear-gradient(90deg,#5fd6a3,#12a150)}
+  .ptrack i.warnb{background:linear-gradient(90deg,#fcd34d,#d97706)}
+  .ptrack i.badb{background:linear-gradient(90deg,#fca5a5,#e5484d)}
+  .ptrack .pmark{position:absolute;right:0;top:-4px;bottom:-4px;width:2px;
+                 background:#c3ccd8;border-radius:2px}
+  .ptrack i.baseb{background:#c7d0da}
+  .legend{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);
+          margin:-4px 0 14px 2px}
+  .legend .sw{width:22px;height:8px;border-radius:5px;
+              background:linear-gradient(90deg,#93b4fb,#3563e9);display:inline-block}
+  .legend .mk{width:2px;height:13px;background:#c3ccd8;display:inline-block;border-radius:2px}
+
+  /* ---- 推荐榜 ---- */
+  .wincard{border:1px solid #d6f0e0;border-radius:16px;padding:22px 24px;margin-bottom:20px;
+           background:linear-gradient(165deg,#f5fdf8,#fff 62%)}
+  .wincard .top{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+  .wincard .crown{font-size:11.5px;font-weight:700;color:#0e8a45;background:#d9f7e6;
+                  padding:4px 11px;border-radius:20px;letter-spacing:.04em;white-space:nowrap}
+  .wincard h4{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em}
+  .wincard .sub{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .wincard .bigratio{margin-left:auto;text-align:right;line-height:1}
+  .wincard .bigratio b{font-size:40px;font-weight:700;font-family:var(--mono);
+                       letter-spacing:-.03em;color:#0e8a45}
+  .wincard .bigratio span{display:block;font-size:11.5px;color:var(--muted);
+                          font-weight:400;margin-top:6px;letter-spacing:.02em}
+  .wincard .why{font-size:13px;color:#3f4a58;margin:12px 0 16px;line-height:1.7}
+  .wincard .barline{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .wmetrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:12px}
+  .wmetrics div{background:#fff;border:1px solid #eaf1ec;border-radius:10px;padding:10px 12px}
+  .wmetrics span{display:block;font-size:11px;color:var(--muted);margin-bottom:3px}
+  .wmetrics b{font-size:16px;font-family:var(--mono);letter-spacing:-.02em}
+
+  .rankhead{font-size:12px;color:var(--muted);margin:0 0 10px 2px;letter-spacing:.02em}
+  .prow{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:10px;
+        border:1px solid #f0f2f6;margin-bottom:7px;background:#fff}
+  .prow:hover{border-color:#e2e8f4}
+  .prow .pname{width:180px;flex:none;font-size:12.8px;font-weight:600;
+               overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .prow .pname .muted{font-weight:400;font-size:11px;display:block;margin-top:1px}
+  .prow .pval{width:58px;flex:none;text-align:right;font-family:var(--mono);
+              font-size:13px;font-weight:600}
+  .prow .pnote{width:150px;flex:none;text-align:right;font-size:11.5px;color:var(--muted);
+               overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .prow.dim{opacity:.72}
+
+  /* ---- 目标详情卡片网格 ---- */
+  .tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:12px}
+  .tcard{border:1px solid #eef1f6;border-radius:14px;padding:16px 17px;background:#fff;
+         transition:.16s}
+  .tcard:hover{box-shadow:0 6px 20px -12px rgba(16,24,40,.3);transform:translateY(-1px)}
+  .tcard.best{border-color:#c8ecd8;background:linear-gradient(170deg,#f6fdf9,#fff)}
+  .tcard header{display:flex;align-items:center;gap:8px;margin-bottom:2px;padding:0}
+  .tcard header b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tcard .tmore{margin-left:auto;flex:none}
+  .tcard .tsub{font-size:11.5px;color:var(--muted);margin-bottom:14px;
+               overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tcard .ratio{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+  .tcard .ratio b{font-size:24px;font-family:var(--mono);font-weight:700;letter-spacing:-.03em}
+  .tcard .ratio span{font-size:11.5px;color:var(--muted)}
+  .tstats{display:grid;grid-template-columns:1fr 1fr;gap:9px 12px;margin-top:14px;
+          padding-top:13px;border-top:1px dashed #eef1f6}
+  .tstats span{display:block;font-size:10.5px;color:var(--muted);margin-bottom:1px}
+  .tstats b{font-size:12.8px;font-family:var(--mono);font-weight:600}
+  .vgroup + .vgroup{margin-top:24px}
+  .vghead{margin-bottom:10px;flex-wrap:wrap}
+  .vghead b{font-size:14px}
+
+  /* ---- 同一工作量 ---- */
+  .scen{margin-bottom:20px}
+  .scen:last-child{margin-bottom:0}
+  .scen-h{font-size:12.5px;font-weight:600;color:#3f4a58;margin-bottom:9px;
+          display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .scen-h .win{font-size:11px;font-weight:500;color:#0e8a45;background:#dcf7e7;
+               padding:2px 9px;border-radius:20px}
+  .srow{display:flex;align-items:center;gap:11px;padding:6px 0;font-size:12.5px}
+  .srow .sn{width:168px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .srow .sv{width:86px;flex:none;text-align:right;font-family:var(--mono)}
+  .srow .sr{width:52px;flex:none;text-align:right;font-size:11px;color:var(--muted)}
+  .srow.cheap .sn,{font-weight:600}
+
+  /* 批量运行时的浮层进度 */
+  .running{font-size:12.5px;color:var(--accent);font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1>中转站对照台</h1>
+  <span class="sub">同 prompt · 同参数 · 按品牌各自对照官方价</span>
+  <span class="spacer"></span>
+  <span class="sub" id="clock"></span>
+</header>
+
+<main>
+  <aside>
+    <h2 style="margin-top:0">模型品牌</h2>
+    <div class="brands" id="brands"></div>
+    <h2>对比目标</h2>
+    <div style="font-size:11px;color:var(--muted);margin:-6px 0 9px 8px;line-height:1.5">
+      勾选左侧方框，底部可一键批量测试
+    </div>
+    <div id="tlist"></div>
+    <button id="addBtn" style="width:100%;margin-top:6px">+ 添加中转站</button>
+
+    <div class="selbar">
+      <span class="cnt"><b id="selCount">0</b> 个已选</span>
+      <span class="spacer"></span>
+      <button id="pickAllBtn" title="全选 / 取消全选当前品牌下的目标">全选</button>
+      <button class="primary" id="batchBtn" disabled>一键测试</button>
+    </div>
+  </aside>
+
+  <section id="work">
+    <div class="tabs" id="tabs">
+      <button data-tab="bench" class="on">测速对照</button>
+      <button data-tab="bill">账单核对</button>
+    </div>
+
+    <div id="panel-bench">
+    <div class="sec">
+      <div class="flex" style="margin-bottom:10px">
+        <h3 style="margin:0">推荐用哪个</h3>
+        <span class="spacer"></span>
+        <div class="seg" id="modeSeg">
+          <button data-mode="interactive" class="on">在线交互</button>
+          <button data-mode="batch">离线批处理</button>
+        </div>
+      </div>
+      <div id="recBody"><div class="empty">还没有数据，先跑几轮</div></div>
+    </div>
+
+    <div class="sec">
+      <div class="flex" style="margin-bottom:10px">
+        <h3 style="margin:0">同一工作量，谁更便宜</h3>
+        <span class="spacer"></span>
+        <span class="sub muted">按实扣价（有账单时）或标价算，不计缓存</span>
+      </div>
+      <div id="scenBody"><div class="empty">还没有目标</div></div>
+      <div class="hint">
+        两家的「几折」是在各自账单的 token 结构上算出来的（一家全是长文、一家全是短句），
+        直接比会错。这张表把每家的单价套到<b>同一个请求</b>上，才是可比的价格。
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="flex" style="margin-bottom:12px">
+        <h3 style="margin:0" id="curName">未选择目标</h3>
+        <span id="curVerdict"></span>
+        <span class="spacer"></span>
+        <span class="sub muted" id="curMeta"></span>
+      </div>
+      <div class="row">
+        <div class="field"><label>次数</label><input id="p_runs" type="number" value="30" min="1" max="200" style="width:78px"></div>
+        <div class="field"><label>预热（丢弃）</label><input id="p_warm" type="number" value="2" min="0" max="10" style="width:96px"></div>
+        <div class="field"><label>max_tokens</label><input id="p_max" type="number" value="1024" min="16" max="8000" style="width:104px"></div>
+        <div class="field"><label>思考</label>
+          <select id="p_think" style="width:152px">
+            <option value="default" selected>默认（跟随模型）</option>
+            <option value="enabled">强制开启</option>
+            <option value="disabled">关闭</option>
+          </select>
+        </div>
+        <div class="field" style="flex:1;min-width:180px"><label>Prompt</label><input id="p_prompt" placeholder="留空用内置标准 prompt"></div>
+        <button class="primary" id="runBtn" disabled>开始测试</button>
+      </div>
+      <div class="hint" id="thinkHint"></div>
+      <div class="bar"><i id="prog"></i></div>
+      <div class="log" id="log">等待开始…</div>
+    </div>
+
+    <div class="sec">
+      <h3>当前目标最近一次结果</h3>
+      <div class="cards" id="cards"><div class="empty" style="grid-column:1/-1">还没有数据</div></div>
+      <div class="recon">
+        <div class="field" style="width:250px"><label>对账：站点后台实扣 ¥</label>
+          <div class="flex" style="gap:6px">
+            <input id="p_charge" type="number" step="0.000001" placeholder="如 0.000052">
+            <select id="p_chargeScope" style="width:106px">
+              <option value="all">整轮合计</option>
+              <option value="one">单次</option>
+            </select>
+          </div>
+        </div>
+        <div id="chargeOut" class="muted" style="font-size:12.5px;line-height:1.7"></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h3>对比（按品牌分组，各自对照本品牌官方价）</h3>
+      <div id="cmpBody"><div class="empty">暂无数据</div></div>
+      <div class="hint">
+        每万次省 / 多等，都按<b>同品牌基线实测的 token 数</b>折算，跨品牌不可比价。
+        「多等 1 分钟换回」低于 ¥1 基本不值得，除非离线批处理。
+      </div>
+    </div>
+
+    <div class="sec">
+      <h3>首字延迟对比（ms）</h3>
+      <canvas id="chart"></canvas>
+    </div>
+
+    <div class="sec">
+      <h3>历史记录</h3>
+      <table>
+        <thead><tr><th>时间</th><th>目标</th><th>品牌</th><th>次数</th><th>ttft 均值</th><th>tok/s</th><th>单次成本</th></tr></thead>
+        <tbody id="hist"><tr><td colspan="7" class="empty">暂无</td></tr></tbody>
+      </table>
+    </div>
+    </div><!-- /panel-bench -->
+
+    <div id="panel-bill" style="display:none">
+      <div class="sec">
+        <div class="flex" style="margin-bottom:12px">
+          <h3 style="margin:0">获取账单</h3>
+          <span class="tag" id="billWho">未选择目标</span>
+          <span class="spacer"></span>
+          <div class="seg" id="srcSeg">
+            <button data-src="oneapi" class="on">直连同步</button>
+            <button data-src="paste">粘贴导入</button>
+            <button data-src="manual">手填汇总</button>
+          </div>
+        </div>
+        <div id="billForm"></div>
+        <div id="billErr"></div>
+      </div>
+
+      <div class="sec">
+        <div class="flex" style="margin-bottom:10px;flex-wrap:wrap;gap:8px">
+          <h3 style="margin:0">体检报告</h3>
+          <span class="spacer"></span>
+          <span class="sub muted" id="reportMeta"></span>
+          <button type="button" id="reAudit"
+            style="padding:4px 11px;font-size:12px"
+            title="按当前的账单、最近的压测结果、目标里填的标价重新算一遍。站点改价、换了数据之后点这里。">重新体检</button>
+        </div>
+        <div id="billReport"><div class="empty">还没有账单数据</div></div>
+      </div>
+
+      <div class="sec" id="billBoardSec">
+        <h3>账单看板</h3>
+        <div class="cards" id="billCards"></div>
+        <canvas id="billChart" style="height:170px;margin-top:16px"></canvas>
+        <div id="billRate" class="flex"
+          style="gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px;font-size:12.5px"></div>
+        <div id="billNotes"></div>
+      </div>
+
+      <div class="sec" id="billModelSec">
+        <div class="flex" style="margin-bottom:10px">
+          <h3 style="margin:0">模型分布</h3>
+          <span class="spacer"></span>
+          <span class="sub muted" id="billMeta"></span>
+        </div>
+        <table>
+          <thead><tr><th>模型</th><th>调用</th><th>token</th><th>消费</th><th>占比</th></tr></thead>
+          <tbody id="billModels"><tr><td colspan="5" class="empty">暂无</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="sec" id="billHistSec">
+        <div class="flex" style="margin-bottom:10px">
+          <h3 style="margin:0">同步历史</h3>
+          <span class="spacer"></span>
+          <button id="billClear" type="button" style="padding:5px 10px;font-size:12px">清空全部</button>
+        </div>
+        <table>
+          <thead><tr><th>时间</th><th>来源</th><th>请求</th><th>消费</th>
+            <th>输入 / 输出</th><th>缓存命中</th><th></th></tr></thead>
+          <tbody id="billHist"><tr><td colspan="7" class="empty">暂无</td></tr></tbody>
+        </table>
+        <div class="hint">
+          同一份账单直连同步会拉最近 7 天；粘贴/手填按你给的内容入库。
+          多次同步会累积成趋势，用来发现「悄悄涨价」。
+        </div>
+      </div>
+    </div><!-- /panel-bill -->
+  </section>
+</main>
+
+<div class="modal" id="capModal">
+  <div class="sheet" style="max-width:660px">
+    <h3>采集脚本 · 自研后台专用</h3>
+    <ol style="font-size:12.5px;line-height:1.95;padding-left:20px;margin:0 0 12px;color:#334155">
+      <li>在<b>中转站后台</b>登录，点开「用量 / 账单 / 日志」页面，等数据加载出来</li>
+      <li>按 <b>F12</b> → 切到 <b>Console</b>，整段粘贴下面脚本，回车</li>
+      <li>看到「已复制」后回到这里 → 粘贴（Ctrl+V）→ 解析导入</li>
+    </ol>
+    <textarea id="capCode" readonly spellcheck="false"
+      style="height:250px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1.5;white-space:pre;overflow:auto"></textarea>
+    <div class="hint" style="margin-top:8px">
+      脚本只在你自己的浏览器里跑：读本页 localStorage 里的登录令牌，重放这个站自己的接口，
+      把响应原样抓下来。不发往任何第三方，也不改你后台任何数据。
+    </div>
+    <div class="flex" style="margin-top:10px">
+      <span class="spacer"></span>
+      <button type="button" id="capCancel">关闭</button>
+      <button type="button" class="primary" id="capCopy">复制脚本</button>
+    </div>
+  </div>
+</div>
+
+<script type="text/plain" id="tplCollector">
+(async () => {
+  const KEYS = ['zz_token','token','access_token','auth_token','jwt','user_token','Authorization'];
+  let tk = '';
+  for (const k of KEYS) {
+    const v = localStorage.getItem(k);
+    if (v && v.length > 16) { tk = v.replace(/^Bearer\s+/i, ''); break; }
+  }
+  if (!tk) {
+    for (const k of Object.keys(localStorage)) {
+      const v = localStorage.getItem(k);
+      if (typeof v === 'string' && v.startsWith('eyJ') && v.length > 40) { tk = v; break; }
+    }
+  }
+  if (!tk) { alert('没在 localStorage 里找到登录令牌。请确认已登录这个站的后台，再执行一次。'); return; }
+
+  const BAD = /\.(js|css|png|jpg|jpeg|gif|svg|ico|woff2?|map)(\?|$)/i;
+  const KW  = /(usage|log|bill|stat|consume|spend|record|order|quota|balance|account|dashboard|token|feed|detail)/i;
+  // 令牌/密钥/账户/价目表这些接口「有数组有数字」但绝对不是账单，排到最后再抓
+  const NOTBILL = /(tokens?|keys?|api-?key|user\/self|profile|notice|announce|config|status|pricing|models?|points|balance|checkin|invite|redeem|topup)/i;
+  const ISBILL  = /(log|usage|bill|record|consume|spend|stat|detail)/i;
+  const rank = u => (NOTBILL.test(u) ? 4 : 0) + (ISBILL.test(u) ? 0 : 1);
+  let urls = [...new Set(performance.getEntriesByType('resource').map(e => e.name))]
+    .filter(u => u.includes('/api/') && !BAD.test(u) && !/analytics|sentry|beacon|gtag|umami/i.test(u));
+  urls.sort((a, b) => rank(a) - rank(b) || (KW.test(b) ? 1 : 0) - (KW.test(a) ? 1 : 0));
+  urls = urls.slice(0, 40);
+  if (!urls.length) {
+    alert('没抓到 API 请求。先在后台点开「用量 / 账单 / 日志」让数据加载，再执行一次。');
+    return;
+  }
+
+  const HS = [
+    {Authorization: 'Bearer ' + tk}, {Authorization: tk},
+    {token: tk}, {'X-Token': tk}, {'X-Access-Token': tk}, {}
+  ];
+  const out = [];
+  for (const u of urls) {
+    for (const h of HS) {
+      try {
+        const r = await fetch(u, {headers: Object.assign({Accept: 'application/json'}, h), credentials: 'include'});
+        if (!r.ok) continue;
+        const t = await r.text();
+        if (t.length > 3e6) continue;
+        const c = t.trim()[0];
+        if (c !== '{' && c !== '[') continue;
+        let body; try { body = JSON.parse(t); } catch (e) { continue; }
+        out.push({url: u, status: r.status, body});
+        break;
+      } catch (e) {}
+    }
+    if (out.length >= 16) break;
+  }
+  if (!out.length) {
+    alert('这些接口都没能直接取到（可能只收 POST 或特殊请求头）。\n改用：F12 → Network → 找返回数据的请求 → 右键 Copy response，贴进「粘贴导入」。');
+    return;
+  }
+  const payload = JSON.stringify({_capture: out});
+  try {
+    await navigator.clipboard.writeText(payload);
+    alert('已复制 ' + out.length + ' 份接口响应。\n回到 RelayHub →「粘贴导入」→ Ctrl+V → 解析导入\n\n'
+        + '（如果那边提示「没有一份像账单」，说明用量接口没抓到：先把后台的「使用日志 / 用量」页打开、'
+        + '让列表真正加载出来，再执行一次这个脚本。）');
+  } catch (e) {
+    console.log(payload);
+    alert('浏览器拦了自动复制，内容已打印在 Console，手动复制那行 JSON。');
+  }
+})();
+</script>
+
+<div class="modal" id="modal">
+  <div class="sheet">
+    <h3 id="sheetTitle">添加中转站</h3>
+    <div class="grid2" style="margin-bottom:10px">
+      <div class="field"><label>名称（显示用）</label><input id="f_name" placeholder="某某中转站"></div>
+      <div class="field"><label>Base URL</label><input id="f_base" placeholder="https://xxx.com/v1"></div>
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label>API Key</label><input id="f_key" type="password" placeholder="sk-...">
+      <div class="hint" style="margin-top:4px">模型清单按这个 key 读——只列它实际能调的，不是站点全部模型。</div>
+    </div>
+    <div class="grid2" style="margin-bottom:10px">
+      <div class="field"><label>品牌</label><select id="f_vendor"></select></div>
+      <div class="field">
+        <div class="flex" style="justify-content:space-between;align-items:baseline;gap:6px;
+             font-size:11.5px;color:var(--muted)">
+          <span>模型</span>
+          <button type="button" id="fetchModels" title="用上面的 Base URL + API Key 读这个 key 能调的模型"
+            style="padding:0 7px;font-size:11px;font-weight:400;line-height:1.7">↻ 从站点读取</button>
+        </div>
+        <select id="f_model" title=""></select>
+        <div id="modelPick" style="display:none;font-size:11px;color:var(--muted);line-height:1.6;
+             word-break:break-all"></div>
+      </div>
+    </div>
+    <div id="modelSearchWrap" style="display:none;margin-bottom:10px">
+      <input id="f_model_q" placeholder="筛选模型名，比如 deepseek / gpt / glm">
+    </div>
+    <div id="modelHint" class="hint" style="display:none;margin:-2px 0 6px"></div>
+    <div id="catalogWrap" style="display:none;margin:0 0 10px">
+      <button type="button" id="fetchCatalog"
+        style="padding:2px 8px;font-size:11.5px;font-weight:400">↻ 改读全站公开目录（不按 key 过滤）</button>
+    </div>
+    <div id="customWrap" style="display:none;margin-bottom:10px">
+      <div class="field"><label>自定义模型名</label><input id="f_model_custom" placeholder="deepseek-v4.1-flash"></div>
+    </div>
+    <div class="field" style="margin-bottom:4px"><label>官方参考价 ¥/百万（对照用）</label></div>
+    <div class="grid3" style="margin-bottom:12px">
+      <div class="field"><input id="f_rin" type="number" step="0.001" placeholder="输入"></div>
+      <div class="field"><input id="f_rout" type="number" step="0.001" placeholder="输出"></div>
+      <div class="field"><input id="f_rcache" type="number" step="0.001" placeholder="缓存"></div>
+    </div>
+    <div class="flex" style="margin-bottom:4px;gap:8px">
+      <label style="font-size:12.5px;color:#475569">这个站的实际标价 ¥/百万</label>
+      <span class="spacer"></span>
+      <span id="autoPriceOut" class="muted" style="font-size:11.5px"></span>
+      <button type="button" id="autoPrice" style="padding:4px 10px;font-size:12px">↻ 从站点读取</button>
+    </div>
+    <div class="grid3" style="margin-bottom:6px">
+      <div class="field"><input id="f_pin" type="number" step="0.001" placeholder="输入"></div>
+      <div class="field"><input id="f_pout" type="number" step="0.001" placeholder="输出"></div>
+      <div class="field"><input id="f_pcache" type="number" step="0.001" placeholder="缓存"></div>
+    </div>
+    <div class="flex" style="margin-bottom:12px;gap:8px">
+      <span class="muted" style="font-size:12px;white-space:nowrap">按几折换算</span>
+      <input id="f_zhe" type="number" step="0.1" placeholder="0.3" style="width:82px">
+      <button type="button" id="calcZhe" style="padding:5px 10px;font-size:12px">填进去</button>
+      <span id="zheOut" class="muted" style="font-size:12px"></span>
+    </div>
+    <label class="flex" style="font-size:12.5px;margin-bottom:12px">
+      <input type="checkbox" id="f_isbase" style="width:auto">
+      <span>设为该品牌基线（官方直连才勾，用来算延迟差）</span>
+    </label>
+    <div class="flex">
+      <button type="button" class="danger" id="delBtn" style="display:none">删除</button>
+      <span class="spacer"></span>
+      <button type="button" id="cancelBtn">取消</button>
+      <button type="button" class="primary" id="saveBtn">保存</button>
+    </div>
+    <div class="hint" id="formHint">参考价会按品牌+模型自动填，可以改。真实扣费以站点资金记录为准。</div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const api = async (path, method = "GET", body) => {
+  const r = await fetch(path, {
+    method,
+    headers: body ? {"Content-Type": "application/json"} : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.error) throw new Error(d.error || ("HTTP " + r.status));
+  return d;
+};
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money = v => {
+  if (v == null) return "—";
+  const neg = v < 0, a = Math.abs(v);
+  const s = a < 0.01 ? a.toFixed(5) : a < 1 ? a.toFixed(4) : a.toFixed(2);
+  return (neg ? "-¥" : "¥") + s;
+};
+const ms = v => v == null ? "—" : Math.round(v) + "";
+const pct = v => v == null ? "—" : (v * 100).toFixed(v < 0.1 ? 1 : 0) + "%";
+
+let vendors = [], targets = [], cur = null, cmp = null, mode = "interactive",
+    filter = "all", editing = null, polling = null;
+// 这次页面会话里每个目标的失败原因（站点日额度用完、key 失效这类），
+// 结果区直接说清楚，不要只留一句“还没有实测数据”。
+const lastStop = {};
+const VEND = () => Object.fromEntries(vendors.map(v => [v.key, v]));
+
+async function boot() {
+  vendors = await api("/api/vendors");
+  buildVendorSelect();
+  renderBillForm();
+  await refresh();
+}
+
+async function refresh() {
+  targets = await api("/api/targets");
+  // 重新拉过列表就换成新对象，否则 cur 还挂着旧字段（比如 last_stop 不会更新）
+  if (cur) {
+    const fresh = targets.find(x => x.id === cur.id);
+    if (fresh) cur = fresh;
+  }
+  renderBrands();
+  renderTargets();
+  await loadCompare();
+  const m = /^#t(\d+)$/.exec(location.hash);
+  if (m && !cur) {
+    const t = targets.find(x => x.id == m[1]);
+    if (t) select(t);
+  }
+  if (location.hash === "#new" && !$("modal").classList.contains("on")) openForm(null);
+  const mb = /^#bill-(\d+)$/.exec(location.hash);
+  if (mb) {
+    const t = targets.find(x => x.id == mb[1]);
+    if (t) { select(t); switchTab("bill"); }
+  } else if (location.hash === "#bill") {
+    switchTab("bill");
+  }
+}
+
+function buildVendorSelect() {
+  $("f_vendor").innerHTML = vendors.map(v =>
+    `<option value="${v.key}">${esc(v.name)}${v.est ? " ≈" : ""}</option>`).join("");
+}
+
+function renderBrands() {
+  const cnt = {};
+  targets.forEach(t => { cnt[t.vendor] = (cnt[t.vendor] || 0) + 1; });
+  const order = vendors.map(v => v.key).filter(k => cnt[k]);
+  Object.keys(cnt).filter(k => !order.includes(k)).forEach(k => order.push(k));
+  let html = `<div class="chip ${filter === "all" ? "on" : ""}" data-k="all">全部<span>${targets.length}</span></div>`;
+  html += order.map(k => {
+    const v = VEND()[k] || {name: k};
+    return `<div class="chip ${filter === k ? "on" : ""}" data-k="${k}">${esc(v.name)}<span>${cnt[k]}</span></div>`;
+  }).join("");
+  $("brands").innerHTML = html;
+  $("brands").querySelectorAll(".chip").forEach(el => el.onclick = () => {
+    filter = el.dataset.k; renderBrands(); renderTargets();
+  });
+}
+
+const picked = new Set();
+let batchRunning = false;
+
+function visibleIds() {
+  const list = filter === "all" ? targets : targets.filter(t => t.vendor === filter);
+  return list.map(t => t.id);
+}
+
+function renderPickBar() {
+  if (!$("selCount")) return;
+  const n = picked.size;
+  const vis = visibleIds();
+  $("selCount").textContent = n;
+  $("batchBtn").textContent = batchRunning ? "停止" : "一键测试";
+  $("batchBtn").disabled = batchRunning ? false : n === 0;
+  $("pickAllBtn").textContent = (vis.length && vis.every(i => picked.has(i))) ? "取消全选" : "全选";
+}
+
+function renderTargets() {
+  const box = $("tlist");
+  if (!targets.length) {
+    box.innerHTML = '<div class="empty" style="padding:10px">还没有目标，点下面添加</div>';
+    renderPickBar();
+    return;
+  }
+  const list = filter === "all" ? targets : targets.filter(t => t.vendor === filter);
+  if (!list.length) {
+    box.innerHTML = '<div class="empty" style="padding:10px">该品牌下还没有目标</div>';
+    renderPickBar();
+    return;
+  }
+  const groups = {};
+  list.forEach(t => { (groups[t.vendor] = groups[t.vendor] || []).push(t); });
+  box.innerHTML = Object.keys(groups).map(vk => {
+    const v = VEND()[vk] || {name: vk};
+    const head = filter === "all" ? `<div class="vhead">${esc(v.name)}</div>` : "";
+    const items = groups[vk].map(t => {
+      const hit = findRow(t.id);
+      const billed = hit && hit.row.price_basis === "billed";
+      const e = hit ? hit.row.eff : null;
+      const shaky = billed && hit.row.billed && hit.row.billed.stable === false;
+      const tag = t.is_base ? '<span class="badge base">基线</span>'
+        : billed ? `<span class="badge billed" title="用它的账单反推的实际扣费：¥${(+e.in).toFixed(3)} / ¥${(+e.out).toFixed(3)} 每百万 token${shaky ? "。注意：这个站同尺寸请求的单价差很大，这只是按账单总额折算的估计值" : ""}">实扣${shaky ? "≈" : ""} ${(+e.in).toFixed(2)}/${(+e.out).toFixed(2)}</span>`
+        : `<span class="badge">¥${t.price_in}/${t.price_out}</span>`;
+      return `
+      <div class="titem ${cur && cur.id === t.id ? "on" : ""}" data-id="${t.id}">
+        <label class="pick" title="勾选后可批量测试">
+          <input type="checkbox" data-pick="${t.id}" ${picked.has(t.id) ? "checked" : ""}>
+        </label>
+        <div class="tmain">
+          <div class="n"><span>${esc(t.name)}</span>${tag}</div>
+          <div class="u">${esc(t.model)} · ${esc((t.base_url || "").replace(/^https?:\/\//, ""))}</div>
+          <div class="ops">
+            <button data-act="edit" data-id="${t.id}">编辑</button>
+            <button data-act="bench" data-id="${t.id}">测试</button>
+            <button data-act="del" data-id="${t.id}">删除</button>
+          </div>
+        </div>
+      </div>`;
+    }).join("");
+    return head + items;
+  }).join("");
+  box.querySelectorAll(".titem").forEach(el => el.onclick = e => {
+    if (e.target.closest("[data-act]") || e.target.closest(".pick")) return;
+    select(targets.find(t => t.id == el.dataset.id));
+  });
+  box.querySelectorAll("[data-pick]").forEach(cb => cb.onchange = () => {
+    const id = +cb.dataset.pick;
+    if (cb.checked) picked.add(id); else picked.delete(id);
+    renderPickBar();
+  });
+  box.querySelectorAll("[data-act]").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    const t = targets.find(x => x.id == b.dataset.id);
+    if (b.dataset.act === "edit") openForm(t);
+    else if (b.dataset.act === "del") removeTarget(t);
+    else if (b.dataset.act === "bench") { select(t); window.scrollTo({top: 0, behavior: "smooth"}); }
+  });
+  renderPickBar();
+}
+
+function select(t) {
+  cur = t;
+  $("curName").textContent = t.name;
+  $("curMeta").textContent = `${t.vendor_name} · ${t.model} · ${t.api_key_masked}`;
+  $("runBtn").disabled = false;
+  document.querySelectorAll(".titem").forEach(el =>
+    el.classList.toggle("on", el.dataset.id == t.id));
+  renderCards();
+  $("billWho").textContent = t.name;
+  bill = null;
+  if ($("panel-bill").style.display !== "none") {
+    loadBill().then(renderBillForm);
+  } else {
+    renderBill();
+  }
+}
+
+function findRow(id) {
+  if (!cmp) return null;
+  for (const g of cmp.groups) {
+    const r = g.targets.find(x => x.id === id);
+    if (r) return {row: r, group: g};
+  }
+  return null;
+}
+
+function renderCards() {
+  if (!cur) { updateCharge(); return; }
+  const hit = findRow(cur.id);
+  if (!hit || !hit.row.runs) {
+    $("curVerdict").innerHTML = "";
+    let st = lastStop[cur.id];
+    if (!st && cur.last_stop) {
+      try { st = JSON.parse(cur.last_stop); } catch (e) {}
+    }
+    $("cards").innerHTML = st
+      ? `<div class="empty" style="grid-column:1/-1">
+           <b style="color:#b91c1c">这次没测成：${esc(st.text)}</b>
+           <div class="muted" style="margin-top:6px;font-size:12px">
+             试到第 ${st.at_run} 次（计划 ${st.planned} 次）就停了，没有一次成功，
+             失败的请求不留数据，免得算出假的中位数。</div></div>`
+      : '<div class="empty" style="grid-column:1/-1">这个目标还没有实测数据</div>';
+    updateCharge();
+    return;
+  }
+  const r = hit.row, s = r.summary, d = r.dttft;
+  $("curVerdict").innerHTML = `<span class="vbadge ${r.verdict.k}" title="${esc(r.verdict.why)}">${r.verdict.label}</span>`;
+  // 思考开着的时候，「首字」是思考的第一个字，用户其实还在等正文，
+  // 所以把主指标换成「首答延迟」，ttft 退成副标题。
+  const thinkTok = s.reasoning_tokens || 0;
+  const outTok = s.output_tokens || 0;
+  const askedThink = s.thinking && s.thinking !== "disabled";
+  const cardTtft = thinkTok > 0
+    ? `<div class="card" title="从发请求到第一段正文出现，含中间的思考过程">
+        <div class="k">首答延迟（含思考）</div>
+        <div class="v">${ms(s.answer_mean)}<small>ms</small></div>
+        <div class="muted" style="font-size:11px;font-weight:400">
+          开始思考 ${ms(s.ttft_mean)}ms · 多等 ${ms((s.answer_mean || 0) - (s.ttft_mean || 0))}ms</div></div>`
+    : `<div class="card"><div class="k">首字延迟 ttft</div>
+        <div class="v">${ms(s.ttft_mean)}<small>ms</small></div></div>`;
+  const cardThink = thinkTok > 0
+    ? `<div class="card"><div class="k">思考 token</div>
+        <div class="v">${Math.round(thinkTok)}<small>/次</small></div>
+        <div class="muted" style="font-size:11px;font-weight:400">
+          占输出 ${pct(thinkTok / Math.max(1, outTok))}，按输出价计费</div></div>`
+    : (askedThink
+      ? `<div class="card" title="请求里带了思考参数，但响应的 usage 没有 reasoning_tokens">
+          <div class="k">思考</div>
+          <div class="v" style="font-size:14px">没返回 token</div>
+          <div class="muted" style="font-size:11px;font-weight:400">站点没给 reasoning_tokens，思考可能被吞了</div></div>`
+      : "");
+  $("cards").innerHTML = `
+    ${cardTtft}
+    <div class="card"><div class="k">p95 / 最差</div>
+      <div class="v">${ms(s.ttft_p95)}<small>/${ms(s.ttft_max)}</small></div></div>
+    <div class="card"><div class="k">解码速度</div>
+      <div class="v">${(s.tps_mean || 0).toFixed(1)}<small>tok/s</small></div></div>
+    ${cardThink}
+    <div class="card"><div class="k">单次成本（实测）</div>
+      <div class="v">${money(s.relay_cny)}<small>/次</small></div></div>
+    <div class="card"><div class="k">同品牌延迟差</div>
+      <div class="v ${d > 0 ? "bad" : "good"}">${d == null ? "—" : (d > 0 ? "+" : "") + ms(d)}<small>ms</small></div></div>
+    <div class="card"><div class="k">每万次省</div>
+      <div class="v ${r.save_per_10k >= 0 ? "good" : "bad"}">${money(r.save_per_10k)}</div></div>`
+    + ((s.truncated || 0) > 0
+      ? `<div class="note bad" style="grid-column:1/-1">有 ${s.truncated} 次被 max_tokens 截断
+          （finish_reason=length）——开思考时正文很容易挤不下，速度和单次成本都会偏低，
+          把 max_tokens 调到 2048 再测一次。</div>`
+      : "")
+    // 中途被站点挡下来（日额度用完、key 失效）：剩下的次数没跑，均值只代表已跑的那几次
+    + (s.partial && s.stopped
+      ? `<div class="note bad" style="grid-column:1/-1">只跑完 ${s.runs}/${s.planned_runs} 次就中断：
+          ${esc(s.stopped.text)}。下面的均值按成功的 ${s.runs} 次算。</div>`
+      : "")
+    // 老结果是按「思考关闭」这个旧默认跑的，和平时用法不一样，得说明白
+    + (!s.thinking && !thinkTok
+      ? `<div class="note" style="grid-column:1/-1">这份结果来自旧版本（当时默认<strong>关闭思考</strong>），
+          速度和单次成本都只反映“纯输出”，不代表你平时的体验。用上面的默认设置重测一次更准。</div>`
+      : "");
+  updateCharge();
+}
+
+async function loadCompare() {
+  cmp = await api("/api/compare?mode=" + mode);
+  renderRec();
+  renderScen();
+  renderTables();
+  drawChart();
+  renderCards();
+  renderTargets();
+}
+
+/* 同一工作量比价：三列三种典型请求，每格是「这一次请求要花多少钱」。
+   这是唯一能跨站比的口径——按各自账单的折数横向比是错的。 */
+function renderScen() {
+  const box = $("scenBody");
+  const sc = (cmp && cmp.scenarios) || [];
+  if (!sc.length) { box.innerHTML = '<div class="empty">还没有目标</div>'; return; }
+  box.innerHTML = sc.map(s => {
+    const max = Math.max.apply(null, s.rows.map(r => r.cost || 0).concat([1e-9]));
+    const winner = s.rows.find(r => r.id === s.cheapest);
+    const sorted = s.rows.slice().sort((a, b) => (a.cost || 0) - (b.cost || 0));
+    const shown = sorted.slice(0, 6);
+    const rest = sorted.length - shown.length;
+    const rows = shown.map(r => {
+      const w = Math.max(2, (r.cost || 0) / max * 100);
+      const cheap = r.id === s.cheapest;
+      const billed = r.basis === "billed";
+      return `<div class="srow">
+        <div class="sn">${cheap ? "★ " : ""}${esc(r.name)}</div>
+        <div class="ptrack"><i class="${billed ? "good" : "warnb"}" style="width:${w}%"></i></div>
+        <div class="sv">${money(r.cost)}</div>
+        <div class="sr">${r.ratio == null ? "—" : (r.ratio * 100).toFixed(0) + "%"}</div>
+      </div>`;
+    }).join("");
+    return `<div class="scen">
+      <div class="scen-h">${esc(s.label)}
+        ${winner ? `<span class="win">最便宜 ${esc(winner.name)}</span>` : ""}</div>
+      ${rows}
+      ${rest > 0 ? `<div class="hint" style="margin:6px 0 0 2px">还有 ${rest} 个更贵的没列出来</div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+// 条长 = 该站的价 ÷ 官方价；颜色只表达贵不贵，不掺结论（结论在文字里）
+function priceCls(ratio, isBase) {
+  if (isBase || ratio == null) return "baseb";
+  if (ratio <= 0.35) return "good";     // 官方价 3.5 折以内
+  if (ratio <= 0.6) return "warnb";     // 6 折以内，能用
+  if (ratio <= 1.02) return "baseb";    // 跟官方一个价，没便宜也没贵
+  return "badb";                        // 比官方还贵
+}
+
+// 100% 处画一条竖线当参照，条比线短就是便宜。
+function pbar(ratio, isBase) {
+  const p = ratio == null ? 0 : Math.max(0, Math.min(100, ratio * 100));
+  return `<div class="ptrack"><i class="${priceCls(ratio, isBase)}" style="width:${p}%"></i><span class="pmark"></span></div>`;
+}
+
+function renderRec() {
+  const all = [];
+  cmp.groups.forEach(g => g.targets.forEach(t => { if (t.runs) all.push({t, g}); }));
+  if (!all.length) {
+    $("recBody").innerHTML = '<div class="empty">还没有可比较的数据，先把目标跑出结果</div>';
+    return;
+  }
+  const best = cmp.best;
+  const bestG = best ? (all.find(x => x.t.id === best.id) || {}).g : null;
+  let html = "";
+
+  if (best) {
+    const r = best, sm = r.summary || {};
+    html += `<div class="wincard">
+      <div class="top">
+        <span class="crown">最推荐</span>
+        <div style="min-width:0">
+          <h4>${esc(r.name)}</h4>
+          <div class="sub">${esc(bestG ? bestG.name : "")} · ${esc(r.model || "")}</div>
+        </div>
+        <div class="bigratio"><b>${pct(r.ratio)}</b><span>相当于官方价</span></div>
+      </div>
+      <div class="why">${esc(r.verdict.why)}</div>
+      <div class="barline">${pbar(r.ratio, r.is_base)}</div>
+      <div class="wmetrics">
+        <div><span>首字延迟</span><b>${ms(sm.ttft_mean)} ms</b></div>
+        <div><span>同品牌差</span><b>${r.dttft == null ? "—" : (r.dttft > 0 ? "+" : "") + ms(r.dttft) + " ms"}</b></div>
+        <div><span>每万次省</span><b>${money(r.save_per_10k)}</b></div>
+        <div><span>多等 1 分钟换回</span><b>${r.per_min == null ? "—" : money(r.per_min)}</b></div>
+      </div>
+    </div>`;
+  }
+
+  html += `<div class="legend">
+    <span class="sw"></span>比官方便宜
+    <span class="mk" style="margin-left:10px"></span>官方价 100%
+    <span style="margin-left:10px;color:#b8c0cc">灰色条＝基线/无结论</span>
+  </div>`;
+  // 每个品牌单独一档：价格是「相当于本品牌官方」，跨品牌混排会看岔
+  cmp.groups.forEach(g => {
+    const rows = g.targets.filter(t => t.runs).slice().sort((a, b) =>
+      (a.ratio == null ? 9 : a.ratio) - (b.ratio == null ? 9 : b.ratio));
+    if (!rows.length) return;
+    html += `<div class="rankhead">${esc(g.name)}<span style="opacity:.6"> · 从便宜到贵</span></div>`;
+    html += rows.map(t => {
+      const isBest = best && t.id === best.id;
+      const note = t.is_base ? "基线"
+        : t.verdict.k === "bad" ? "不划算"
+        : (t.verdict.k === "ok" ? "能用"
+        : (t.summary && t.summary.ttft_mean != null ? ms(t.summary.ttft_mean) + " ms" : "—"));
+      return `<div class="prow ${t.verdict.k === "bad" ? "dim" : ""}">
+        <div class="pname">${isBest ? "★ " : ""}${esc(t.name)}
+          <span class="muted">${t.is_base ? "基线 · 100%" : (t.model || "")}</span></div>
+        ${pbar(t.ratio, t.is_base)}
+        <div class="pval">${pct(t.ratio)}</div>
+        <div class="pnote">${note}</div>
+      </div>`;
+    }).join("");
+  });
+
+  if (mode === "interactive") {
+    html += `<div class="hint">交互模式看「每多等 1 分钟换回多少钱」：低于 ¥1 不划算，高于 ¥2 才算真省。</div>`;
+  } else {
+    html += `<div class="hint">批处理模式只看价格比：官方价 35% 以内推荐，60% 以内可用，再高不值得折腾。</div>`;
+  }
+  html += `<div class="hint">「相当于官方」按你这轮实测 prompt 的大小折算。按次兜底的站点，短请求会被算得更贵，
+    换个请求大小结论可能翻过来，具体看下面「同一工作量」。</div>`;
+  $("recBody").innerHTML = html;
+}
+
+function renderTables() {
+  if (!cmp.groups.length) {
+    $("cmpBody").innerHTML = '<div class="empty">暂无数据</div>';
+    return;
+  }
+  $("cmpBody").innerHTML = cmp.groups.map(g => {
+    const kinds = g.targets.filter(x => x.runs).map(
+      x => ((x.summary || {}).reasoning_tokens || 0) > 0 ? 1 : 0);
+    const mixed = new Set(kinds).size > 1;
+    const baseS = (g.targets.find(x => x.is_base) || {}).summary;
+    const baseThink = !!(baseS && (baseS.reasoning_tokens || 0) > 0);
+
+    const head = `<div class="vghead"><b>${esc(g.name)}</b>
+      <span class="tag">基线 ${g.baseline_ttft == null ? "未测" : ms(g.baseline_ttft) + " ms"}</span>
+      ${g.base_official === false ? `<span class="tag" style="background:#fef3c7;color:#92400e">基线是「${esc(g.base_name || "")}」，不是官方直连</span>` : ""}
+      <span class="tag">折算工作量 ${Math.round(g.workload.in)} 入 / ${Math.round(g.workload.out)} 出${baseThink ? "（含思考）" : ""}</span>
+      ${mixed ? '<span class="tag" style="background:#fef3c7;color:#92400e">这组开/关思考混测，单次成本口径不同</span>' : ""}
+      ${g.est ? '<span class="est">≈ 参考价待核对</span>' : ""}
+    </div>`;
+
+    const cards = g.targets.slice().sort((a, b) =>
+      (a.ratio == null ? 9 : a.ratio) - (b.ratio == null ? 9 : b.ratio)).map(t => {
+      const sm = t.summary || {};
+      const thinkOn = (sm.reasoning_tokens || 0) > 0;
+      const priceLine = t.price_basis === "billed"
+        ? `实扣 ¥${(+t.eff.in).toFixed(3)} / ¥${(+t.eff.out).toFixed(3)}`
+        : `标价 ¥${t.prices.in} / ¥${t.prices.out}`;
+      const diff = t.is_base ? "—" : (t.dttft == null ? "—" : (t.dttft > 0 ? "+" : "") + ms(t.dttft) + " ms");
+      return `<article class="tcard ${t.verdict.k === "rec" ? "best" : ""}">
+        <header><b title="${esc(t.name)}">${esc(t.name)}</b>
+          <span class="tmore"><span class="vbadge ${t.verdict.k}">${t.verdict.label}</span></span></header>
+        <div class="tsub">${esc(t.model)} · ${priceLine}${thinkOn ? " · 思考开" : ""}</div>
+        <div class="ratio"><b>${t.runs ? pct(t.ratio) : "—"}</b>
+          <span>${t.runs ? "相当于官方" : "还没跑过"}</span></div>
+        ${t.runs ? pbar(t.ratio, t.is_base) : '<div class="ptrack"></div>'}
+        <div class="tstats">
+          <div><span>首字延迟</span><b>${t.ttft == null ? "—" : ms(t.ttft) + " ms"}</b></div>
+          <div><span>同品牌差</span><b class="${t.dttft > 0 ? "bad" : t.dttft < 0 ? "good" : ""}">${diff}</b></div>
+          <div><span>单次成本</span><b>${t.is_base || !t.runs ? "—" : money(sm.relay_cny)}</b></div>
+          <div><span>每万次省</span><b class="${t.save_per_10k >= 0 ? "good" : "bad"}">${t.is_base || !t.runs ? "—" : money(t.save_per_10k)}</b></div>
+        </div>
+      </article>`;
+    }).join("");
+
+    return `<div class="vgroup">${head}<div class="tgrid">${cards}</div></div>`;
+  }).join("");
+}
+
+function drawChart() {
+  const c = $("chart"), dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const rows = [];
+  cmp.groups.forEach(gr => gr.targets.forEach(t => {
+    if (t.ttft != null) {
+      const dup = gr.targets.filter(x => x.name === t.name).length > 1;
+      const nm = dup ? t.name + "·" + t.model.split("-").slice(-1)[0] : t.name;
+      rows.push({name: gr.targets.length > 1 ? gr.name.slice(0, 5) + "·" + nm : nm, t: t});
+    }
+  }));
+  if (!rows.length) {
+    g.fillStyle = "#9aa3af"; g.font = "13px sans-serif";
+    g.fillText("暂无数据", 12, 30);
+    return;
+  }
+  const padL = 156, padR = 66, top = 12;
+  const bh = Math.min(26, (h - top - 10) / rows.length - 6);
+  const maxV = Math.max(...rows.map(r => Math.max(r.t.ttft, (r.t.summary || {}).ttft_p95 || 0))) * 1.15;
+  const scale = (w - padL - padR) / maxV;
+  rows.forEach((r, i) => {
+    const y = top + i * ((h - top - 10) / rows.length);
+    g.fillStyle = "#171b21"; g.font = "12px -apple-system,Microsoft YaHei,sans-serif";
+    g.textAlign = "right";
+    g.fillText(r.name.length > 13 ? r.name.slice(0, 12) + "…" : r.name, padL - 10, y + bh / 2 + 4);
+    const p95 = (r.t.summary || {}).ttft_p95 || r.t.ttft;
+    g.fillStyle = "#e6ecf7";
+    g.fillRect(padL, y, p95 * scale, bh);
+    g.fillStyle = r.t.is_base ? "#94a3b8" : (r.t.verdict.k === "bad" ? "#f97316" : "#2f6fed");
+    g.fillRect(padL, y, r.t.ttft * scale, bh);
+    g.fillStyle = "#475569"; g.textAlign = "left"; g.font = "11.5px ui-monospace,Consolas,monospace";
+    g.fillText(Math.round(r.t.ttft) + "ms", padL + p95 * scale + 8, y + bh / 2 + 4);
+  });
+}
+
+async function loadHistory() {
+  const rows = await api("/api/benches");
+  if (!rows.length) return;
+  $("hist").innerHTML = rows.map(r => {
+    const s = r.summary || {};
+    return `<tr>
+      <td>${esc(r.started_at || "")}</td>
+      <td>${esc(r.name)}</td>
+      <td>${esc(r.vendor_name || "")}</td>
+      <td class="num">${s.runs || 0}</td>
+      <td class="num">${ms(s.ttft_mean)}</td>
+      <td class="num">${(s.tps_mean || 0).toFixed(1)}</td>
+      <td class="num">${money(s.relay_cny)}</td>
+    </tr>`;
+  }).join("");
+}
+
+/* ---------------- 表单 ---------------- */
+let siteModels = [], siteModelQ = "", brandTouched = false;
+
+function showModelHint(html, bad) {
+  const el = $("modelHint");
+  if (!html) { el.style.display = "none"; el.innerHTML = ""; return; }
+  el.style.display = "block";
+  el.style.color = bad ? "#b91c1c" : "";
+  el.innerHTML = html;
+}
+
+function currentModel() {
+  const v = $("f_model").value;
+  return v === "__custom__" ? $("f_model_custom").value.trim() : v;
+}
+
+function fillModels(vk, selected, quiet) {
+  const v = VEND()[vk] || {models: []};
+  const q = siteModelQ.trim().toLowerCase();
+  const opts = [];
+  if (siteModels.length) {
+    const list = siteModels.filter(m => !q || m.id.toLowerCase().includes(q));
+    const shown = list.slice(0, 150);
+    opts.push(`<optgroup label="站点实际提供（${list.length} 个` +
+      (list.length > shown.length ? `，已显示前 ${shown.length} 个` : "") + `）">`);
+    shown.forEach(m => {
+      const g = m.guess ? "  ≈ " + m.guess.model : "";
+      const p = (m.price && (m.price.in || m.price.out))
+        ? "  ¥" + (+m.price.in).toFixed(3) + " / " + (+m.price.out).toFixed(3) : "";
+      opts.push(`<option value="${esc(m.id)}">${esc(m.id + g + p)}</option>`);
+    });
+    opts.push("</optgroup>");
+    if (!list.length) {
+      opts.push(`<option value="" disabled>（没有匹配「${esc(q)}」的模型，换个关键字）</option>`);
+    }
+  } else {
+    v.models.forEach(m => opts.push(
+      `<option value="${esc(m[0])}">${esc(m[0])}${m[4] ? " · " + esc(m[4]) : ""}</option>`));
+  }
+  opts.push('<option value="__custom__">自定义…</option>');
+  $("f_model").innerHTML = opts.join("");
+
+  const box = $("f_model");
+  const want = (selected || "").trim();
+  const has = id => [...box.options].some(o => o.value === id);
+  if (!want) {
+    $("customWrap").style.display = "none";
+  } else if (want === "__custom__") {
+    $("customWrap").style.display = "block";
+  } else if (has(want)) {
+    box.value = want;
+    $("customWrap").style.display = "none";
+  } else if (siteModels.length) {
+    // 站点清单里没有这个老名字，但也不能悄悄换掉
+    const o = document.createElement("option");
+    o.value = want;
+    o.textContent = want + "（不在站点清单）";
+    box.insertBefore(o, box.firstChild);
+    box.value = want;
+    $("customWrap").style.display = "none";
+  } else {
+    box.value = "__custom__";
+    $("f_model_custom").value = want;
+    $("customWrap").style.display = "block";
+  }
+  if (!quiet) syncRef();
+}
+
+function syncRef() {
+  const model = currentModel();
+  const site = siteModels.find(m => m.id === model);
+  const g = site && site.guess ? site.guess : null;
+  if (g && g.vendor !== $("f_vendor").value && !brandTouched) {
+    $("f_vendor").value = g.vendor;   // 站点叫 DeepSeek-V4.1-Flash-1017 也认得出品牌
+  }
+  const vk = $("f_vendor").value;
+  const v = VEND()[vk] || {models: []};
+  const std = g && g.vendor === vk ? g.model : model;
+  const m = (v.models || []).find(x => x[0] === std);
+  if (m) {
+    $("f_rin").value = m[1]; $("f_rout").value = m[2]; $("f_rcache").value = m[3];
+  } else if (g && g.vendor === vk) {
+    $("f_rin").value = g.ref.in; $("f_rout").value = g.ref.out; $("f_rcache").value = g.ref.cache;
+  }
+  // 站点牌价：只在「实际标价」没被手动改过时填，不覆盖你自己算好的数
+  if (site && site.price && (site.price.in || site.price.out) &&
+      $("f_pin").dataset.touched !== "1") {
+    $("f_pin").value = +(+site.price.in).toFixed(6);
+    $("f_pout").value = +(+site.price.out).toFixed(6);
+    $("f_pcache").value = +(+site.price.cache).toFixed(6);
+    $("autoPriceOut").textContent = "已按站点牌价填入" +
+      (site.price.group ? "（组「" + site.price.group + "」）" : "");
+  }
+  // 模型名太长会被下拉框截断，这里把全名和认出的官方型号说清楚
+  $("f_model").title = model || "";
+  const mp = $("modelPick"), bits = [];
+  if (model) bits.push("全名 <b>" + esc(model) + "</b>");
+  if (g) bits.push("≈ " + esc(g.model));
+  if (site && site.price) bits.push("牌价 ¥" + (+site.price.in).toFixed(3) +
+    " / " + (+site.price.out).toFixed(3));
+  mp.style.display = (bits.length > 1 || (model || "").length > 26) ? "block" : "none";
+  mp.innerHTML = bits.join(" · ");
+  $("formHint").innerHTML = v.est
+    ? `<span class="est">${esc(v.name)} 的参考价是按公开报价折算的近似值，跑之前建议核对官方价目页。</span>`
+    : "参考价会按品牌+模型自动填，可以改。真实扣费以站点资金记录为准。";
+  updateZheOut();
+}
+
+/* 折扣 <-> 单价 互转：0.3 折 = 官方价的 3% */
+function updateZheOut() {
+  const rin = parseFloat($("f_rin").value), pin = parseFloat($("f_pin").value);
+  if (!isFinite(rin) || rin <= 0 || !isFinite(pin)) { $("zheOut").textContent = ""; return; }
+  const k = pin / rin;
+  $("zheOut").innerHTML = `= <b>${(k * 10).toFixed(2)} 折</b>（官方价的 ${(k * 100).toFixed(1)}%）`;
+}
+
+function applyZhe() {
+  const z = parseFloat($("f_zhe").value);
+  const rin = parseFloat($("f_rin").value), rout = parseFloat($("f_rout").value);
+  const rc = parseFloat($("f_rcache").value);
+  if (!isFinite(z) || z <= 0) { alert("先填折扣，比如 0.3（= 0.3 折）"); return; }
+  if (!isFinite(rin) || rin <= 0) { alert("官方参考价没填"); return; }
+  const k = z / 10;
+  $("f_pin").value = +(rin * k).toFixed(6);
+  $("f_pout").value = +(rout * k).toFixed(6);
+  $("f_pcache").value = +(rc * k).toFixed(6);
+  ["f_pin", "f_pout", "f_pcache"].forEach(id => $(id).dataset.touched = "1");
+  updateZheOut();
+}
+
+/* 对账：用后台实扣金额反推真实折扣 */
+function updateCharge() {
+  const box = $("chargeOut");
+  if (!box) return;
+  if (!cur) { box.textContent = "先在左边选一个目标"; return; }
+  const hit = findRow(cur.id);
+  if (!hit || !hit.row.runs) { box.textContent = "跑一轮之后才能对账"; return; }
+  const s = hit.row.summary, n = s.runs;
+  const officialTotal = s.official_cny * n;
+  const scope = $("p_chargeScope").value;
+  const v = parseFloat($("p_charge").value);
+  if (!isFinite(v) || v <= 0) {
+    box.innerHTML = `这一轮共 ${n} 次，按官方价应扣 <b>${money(officialTotal)}</b>（单次 ${money(s.official_cny)}）。` +
+      `把站点后台看到的扣费填进来，我给你算真实折扣。`;
+    return;
+  }
+  const base = scope === "one" ? s.official_cny : officialTotal;
+  const ratio = v / base;
+  const scale = scope === "one" ? "单次" : `${n} 次`;
+  box.innerHTML = `${scale}官方应扣 ${money(base)}，实扣 ${money(v)} → ` +
+    `<b>真实 ${(ratio * 10).toFixed(2)} 折</b>（官方价的 ${(ratio * 100).toFixed(1)}%）` +
+    `　<button type="button" id="applyReal" style="padding:3px 8px;font-size:11.5px">按这个折回填标价</button>`;
+  const btn = $("applyReal");
+  if (btn) btn.onclick = () => applyRealPrice(hit.row, ratio);
+}
+
+async function applyRealPrice(row, ratio) {
+  const t = targets.find(x => x.id === row.id);
+  if (!t) return;
+  await api("/api/targets", "POST", {
+    id: t.id, name: t.name, base_url: t.base_url, model: t.model, vendor: t.vendor,
+    api_key: "", is_base: t.is_base ? 1 : 0,
+    ref_in: t.ref_in, ref_out: t.ref_out, ref_cache: t.ref_cache,
+    price_in: +(t.ref_in * ratio).toFixed(6),
+    price_out: +(t.ref_out * ratio).toFixed(6),
+    price_cache: +(t.ref_cache * ratio).toFixed(6),
+  });
+  $("p_charge").value = "";
+  await refresh();
+  const nt = targets.find(x => x.id === t.id);
+  if (nt) select(nt);
+  updateCharge();
+}
+
+function openForm(t) {
+  editing = t || null;
+  siteModels = []; siteModelQ = ""; brandTouched = false;
+  $("f_model_q").value = ""; $("modelSearchWrap").style.display = "none";
+  $("catalogWrap").style.display = "none";
+  $("autoPriceOut").textContent = "";
+  showModelHint("");
+  ["f_pin", "f_pout", "f_pcache"].forEach(id => delete $(id).dataset.touched);
+  $("sheetTitle").textContent = t ? "编辑目标" : "添加中转站";
+  $("delBtn").style.display = t ? "block" : "none";
+  $("f_vendor").value = t ? t.vendor : (filter === "all" ? "deepseek" : filter);
+  fillModels($("f_vendor").value, t ? t.model : null);
+  $("f_name").value = t ? t.name : "";
+  $("f_base").value = t ? t.base_url : "";
+  $("f_key").value = "";
+  $("f_key").placeholder = t
+    ? (t.api_key_masked ? "已保存 " + t.api_key_masked + "，留空则不修改" : "还没存 key，粘贴一个 sk-...")
+    : "sk-...（读模型、跑测试都要用）";
+  $("f_isbase").checked = !!(t && t.is_base);
+  if (t) {
+    $("f_rin").value = t.ref_in; $("f_rout").value = t.ref_out; $("f_rcache").value = t.ref_cache;
+    $("f_pin").value = t.price_in; $("f_pout").value = t.price_out; $("f_pcache").value = t.price_cache;
+  } else {
+    syncRef();
+    $("f_pin").value = $("f_rin").value || 1;
+    $("f_pout").value = $("f_rout").value || 4;
+    $("f_pcache").value = $("f_rcache").value || 0.02;
+  }
+  $("modal").classList.add("on");
+  $("f_zhe").value = "";
+  updateZheOut();
+}
+
+function closeForm() { $("modal").classList.remove("on"); editing = null; }
+
+async function saveForm() {
+  const vk = $("f_vendor").value;
+  let model = $("f_model").value;
+  if (model === "__custom__") model = $("f_model_custom").value.trim();
+  if (!model) { alert("模型名必填"); return; }
+  if (!$("f_name").value.trim() || !$("f_base").value.trim()) { alert("名称和 Base URL 必填"); return; }
+  const body = {
+    id: editing ? editing.id : undefined,
+    vendor: vk, model,
+    name: $("f_name").value.trim(), base_url: $("f_base").value.trim(),
+    api_key: $("f_key").value,
+    ref_in: $("f_rin").value, ref_out: $("f_rout").value, ref_cache: $("f_rcache").value,
+    price_in: $("f_pin").value, price_out: $("f_pout").value, price_cache: $("f_pcache").value,
+    is_base: $("f_isbase").checked ? 1 : 0,
+  };
+  try {
+    const r = await api("/api/targets", "POST", body);
+    closeForm();
+    await refresh();
+    const t = targets.find(x => x.id === r.id);
+    if (t) select(t);
+  } catch (e) { alert("保存失败: " + e.message); }
+}
+
+async function removeTarget(t) {
+  if (!confirm(`删除「${t.name}」？它的测试记录和账单会一起删掉。`)) return;
+  await api("/api/targets/delete", "POST", {id: t.id});
+  if (cur && cur.id === t.id) {
+    cur = null; bill = null;
+    $("curName").textContent = "未选择目标"; $("curMeta").textContent = "";
+    $("runBtn").disabled = true;
+    $("billWho").textContent = "未选择目标";
+  }
+  await refresh(); await loadHistory(); renderBill(); renderBillForm();
+}
+
+/* ---------------- 跑测试 ---------------- */
+let curJobId = null, batchStop = false;
+
+function benchOpts() {
+  return {
+    runs: +$("p_runs").value,
+    warmup: +$("p_warm").value,
+    max_tokens: +$("p_max").value,
+    thinking: $("p_think").value,
+    prompt: $("p_prompt").value.trim(),
+  };
+}
+
+// 跑一个目标，跑完 resolve。onTick 每次轮询回调，onStart 拿到 job 就回调（用于取 job_id 取消）。
+function benchOne(t, opts, onTick, onStart) {
+  return api("/api/bench", "POST", Object.assign({target_id: t.id}, opts)).then(job => {
+    if (onStart) onStart(job);
+    return new Promise(resolve => {
+      const timer = setInterval(async () => {
+        let j;
+        try { j = await api("/api/bench/" + job.job_id); }
+        catch (e) { return; }
+        if (onTick) onTick(j);
+        if (j.status === "done" || j.status === "error"
+            || j.status === "blocked" || j.status === "cancelled") {
+          clearInterval(timer);
+          if (j.stopped) lastStop[t.id] = j.stopped;
+          resolve(j);
+        }
+      }, 900);
+    });
+  });
+}
+
+async function runBench() {
+  if (!cur) return;
+  $("runBtn").disabled = true;
+  $("prog").style.width = "0%";
+  $("log").textContent = "连接中…\n";
+  const opts = benchOpts();
+  const total = opts.runs || 1;
+  try {
+    await benchOne(cur, opts, j => {
+      $("prog").style.width = Math.min(100, (j.done / total) * 100) + "%";
+      const lines = j.rows.slice(-6).map(r =>
+        `ttft ${Math.round(r.ttft_ms)}ms  total ${Math.round(r.total_ms)}ms  ` +
+        `${r.tps.toFixed(1)} tok/s  in ${r.input_tokens}  out ${r.output_tokens}`);
+      if (j.errors.length) {
+        lines.push("失败: " + [...new Set(j.errors)].slice(-2).join(" | "));
+      }
+      if (j.stopped) lines.unshift("⛔ " + j.stopped.text);
+      $("log").textContent = (j.phase || "") + "\n" + lines.join("\n");
+    }, job => { curJobId = job.job_id; });
+  } catch (e) {
+    $("log").textContent = "启动失败: " + e.message;
+  }
+  curJobId = null;
+  $("runBtn").disabled = false;
+  await refresh(); await loadHistory();
+}
+
+async function runBatch() {
+  const ids = [...picked].filter(id => targets.some(t => t.id === id));
+  if (!ids.length || batchRunning) return;
+  const opts = benchOpts();
+  if (!confirm(`依次测试 ${ids.length} 个站点，每个 ${opts.runs} 次。\n跑完一个自动跑下一个，过程中可以点「停止」。`)) return;
+
+  batchRunning = true; batchStop = false;
+  renderPickBar();
+  $("runBtn").disabled = true;
+  $("log").textContent = "";
+  let ok = 0;
+  const fails = [];
+
+  for (let i = 0; i < ids.length; i++) {
+    if (batchStop) break;
+    const t = targets.find(x => x.id === ids[i]);
+    if (!t) continue;
+    $("log").textContent = `[${i + 1}/${ids.length}] ${t.name} — 连接中…`;
+    try {
+      const j = await benchOne(t, opts, j2 => {
+        $("prog").style.width =
+          ((i + Math.min(1, j2.done / (opts.runs || 1))) / ids.length * 100) + "%";
+        $("log").textContent = `[${i + 1}/${ids.length}] ${t.name}\n` +
+          (j2.phase || "") + `  ${j2.done}/${opts.runs}` +
+          (j2.stopped ? "\n⛔ " + j2.stopped.text : "");
+      }, job => { curJobId = job.job_id; });
+      if (j.status === "done") ok++;
+      else fails.push(t.name + "：" + (j.error || (j.stopped && j.stopped.text) || j.status));
+    } catch (e) {
+      fails.push(t.name + "：" + e.message);
+    }
+    curJobId = null;
+    await refresh();
+  }
+
+  $("prog").style.width = "100%";
+  $("log").textContent = `批量结束：成功 ${ok} 个` +
+    (fails.length ? `，失败 ${fails.length} 个\n` + fails.join("\n") : "") +
+    (batchStop ? "\n（已手动停止）" : "");
+  batchRunning = false; batchStop = false;
+  renderPickBar();
+  $("runBtn").disabled = !cur;
+  await refresh(); await loadHistory();
+}
+
+$("batchBtn").onclick = () => {
+  if (batchRunning) {
+    batchStop = true;
+    if (curJobId) api("/api/bench/cancel", "POST", {job_id: curJobId}).catch(() => {});
+    $("log").textContent += "\n正在停止…";
+  } else {
+    runBatch();
+  }
+};
+
+$("pickAllBtn").onclick = () => {
+  const ids = visibleIds();
+  const allOn = ids.length && ids.every(i => picked.has(i));
+  ids.forEach(i => allOn ? picked.delete(i) : picked.add(i));
+  renderTargets();
+};
+
+/* ---------------- 事件 ---------------- */
+
+/* 思考开关和 max_tokens 是绑在一起的：开着思考而额度太小，思考过程会把额度吃掉，
+   正文还没写完就被截断（finish_reason=length），速度和价格的数全废。
+   所以默认跟随模型（平时怎么用就怎么测），只在额度明显不够时提醒。 */
+function syncThink() {
+  const on = $("p_think").value !== "disabled";
+  const mx = +$("p_max").value || 0;
+  const box = $("thinkHint");
+  if (on && mx < 640) {
+    box.innerHTML = "⚠️ 思考开着，但 max_tokens 只有 " + mx
+      + "：思考过程会把额度吃掉、正文被截断，测出来的速度没有意义。<b>点这里改成 1024</b>。";
+    box.style.cursor = "pointer";
+    box.onclick = () => { $("p_max").value = 1024; syncThink(); };
+  } else if (on) {
+    box.innerHTML = "思考<b>开着</b>＝贴近你平时的用法：结果里看「首答延迟」（第一段正文出来要多久），"
+      + "价格按真实输出（含思考 token）算。关掉只比纯输出底速，跑得快省钱，但比出来的价会偏低。";
+    box.style.cursor = "";
+    box.onclick = null;
+  } else {
+    box.innerHTML = "思考<b>关着</b>：只比「纯输出」的底速，跑得快、省钱；"
+      + "和平时用法不一样，<b>算出来的单次成本会偏低</b>，别拿它当日常预算。";
+    box.style.cursor = "";
+    box.onclick = null;
+  }
+}
+$("p_think").onchange = syncThink;
+$("p_max").oninput = syncThink;
+syncThink();
+
+$("runBtn").onclick = runBench;
+$("addBtn").onclick = () => openForm(null);
+$("cancelBtn").onclick = closeForm;
+$("saveBtn").onclick = saveForm;
+$("delBtn").onclick = () => editing && removeTarget(editing);
+$("f_vendor").onchange = () => {
+  brandTouched = true;
+  const cur = $("f_model").value;
+  if (siteModels.length) fillModels($("f_vendor").value, cur, true);
+  else fillModels($("f_vendor").value, null);
+};
+$("f_model").onchange = () => { syncRef(); };
+$("f_model_custom").oninput = () => { if ($("f_model").value === "__custom__") syncRef(); };
+/* 站点模型清单：只问「这个 key 能调的」，不是全站目录 */
+$("fetchModels").onclick = () => {
+  const base = $("f_base").value.trim();
+  if (!base) {
+    showModelHint("先把 Base URL 填上（比如 https://xxx.com/v1），再读模型", true);
+    $("f_base").focus();
+    return;
+  }
+  const key = $("f_key").value.trim();
+  if (!key && !(editing && editing.api_key_masked)) {
+    showModelHint("先填 API Key，再读模型——只读这个 key 能调的模型，不读全站目录", true);
+    $("f_key").focus();
+    return;
+  }
+  readSiteModels(false);
+};
+
+$("fetchCatalog").onclick = () => {
+  if (!$("f_base").value.trim()) {
+    showModelHint("先把 Base URL 填上，再读目录", true);
+    $("f_base").focus();
+    return;
+  }
+  readSiteModels(true);
+};
+
+async function readSiteModels(catalog) {
+  const btn = catalog ? $("fetchCatalog") : $("fetchModels"), old = btn.textContent;
+  const pick = currentModel();
+  btn.disabled = true; btn.textContent = "读取中…";
+  $("catalogWrap").style.display = "none";
+  showModelHint(catalog ? "正在读站点公开价目表…"
+    : "正在用这个 key 问站点要模型清单…");
+  try {
+    const r = await api("/api/models/fetch", "POST", {
+      target_id: editing ? editing.id : undefined,
+      api_base: $("f_base").value.trim(),
+      api_key: $("f_key").value.trim(),
+      catalog: !!catalog,
+    });
+    siteModels = r.models || [];
+    if (!r.ok) throw new Error((r.notes || ["站点没给模型清单"])[0]);
+    siteModelQ = "";
+    $("f_model_q").value = "";
+    $("modelSearchWrap").style.display = siteModels.length > 12 ? "block" : "none";
+    const priced = siteModels.filter(m => m.price).length;
+    const known = siteModels.filter(m => m.guess).length;
+    const viaKey = r.scoped
+      ? `用${r.key_source === "saved" ? "已保存的" : "这个"} key 读到 <b>${r.count}</b> 个模型`
+      : `读到全站公开目录 <b>${r.count}</b> 个模型（不按 key 过滤）`;
+    showModelHint(viaKey +
+      (priced ? `，${priced} 个能对到站点牌价` : "") +
+      (known ? `，${known} 个认得出官方型号（带 ≈）` : "") +
+      (r.scoped && r.count === 1 ? "，已自动选中。" : "。下拉框里带 ¥ 的是站点牌价，选中会自动填。") +
+      ((r.notes || []).length
+        ? `<div style="margin-top:3px">${(r.notes || []).map(esc).join("<br>")}</div>` : ""));
+    // 只有一个模型时直接选它，不用再点下拉框
+    fillModels($("f_vendor").value, siteModels.length === 1 ? siteModels[0].id : pick);
+  } catch (e) {
+    siteModels = [];
+    showModelHint("读取失败：" + esc(e.message) +
+      (catalog ? "。可以手填模型名。" : "。检查 key 是否可用、分组里有没有模型。"), true);
+    if (!catalog) $("catalogWrap").style.display = "block";
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+$("f_model_q").oninput = () => {
+  siteModelQ = $("f_model_q").value.trim().toLowerCase();
+  const cur = currentModel();
+  const keep = cur && (cur === "__custom__" ||
+    siteModels.some(m => m.id === cur && m.id.toLowerCase().includes(siteModelQ)));
+  fillModels($("f_vendor").value, keep ? $("f_model").value : null, !keep);
+};
+["f_pin", "f_pout", "f_pcache"].forEach(id => $(id).addEventListener("input", () => {
+  $(id).dataset.touched = "1";   // 手动改过就别再用站点牌价覆盖
+}));
+["f_pin", "f_pout", "f_pcache", "f_rin"].forEach(id => $(id).oninput = updateZheOut);
+$("autoPrice").onclick = async () => {
+  const model = currentModel();
+  if (!model) { $("autoPriceOut").textContent = "先选一个模型"; return; }
+  if (!$("f_base").value.trim()) { $("autoPriceOut").textContent = "先填 Base URL"; return; }
+  const btn = $("autoPrice"), old = btn.textContent;
+  btn.disabled = true; btn.textContent = "读取中…"; $("autoPriceOut").textContent = "";
+  try {
+    const r = await api("/api/targets/price-preview", "POST",
+      {id: editing ? editing.id : undefined,
+       base_url: $("f_base").value.trim(), model: model});
+    const L = r.listed || {};
+    if (!L.ok) throw new Error((L.notes || ["站点没有公开价格接口"])[0]);
+    $("f_pin").value = +(+L.in).toFixed(6);
+    $("f_pout").value = +(+L.out).toFixed(6);
+    $("f_pcache").value = +(+L.cache).toFixed(6);
+    ["f_pin", "f_pout", "f_pcache"].forEach(id => $(id).dataset.touched = "1");
+    updateZheOut();
+    const m = r.measured || {};
+    $("autoPriceOut").textContent = "组「" + (L.group || "-") + "」" +
+      (m.blended ? " · 账单实测 ¥" + (+m.blended).toFixed(3) + "/M" : "");
+  } catch (e) {
+    $("autoPriceOut").textContent = "读取失败：" + e.message;
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
+};
+
+$("calcZhe").onclick = applyZhe;
+$("f_zhe").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); applyZhe(); } };
+$("p_charge").oninput = updateCharge;
+$("p_chargeScope").onchange = updateCharge;
+$("modal").onclick = e => { if (e.target === $("modal")) closeForm(); };
+$("modeSeg").querySelectorAll("button").forEach(b => b.onclick = () => {
+  mode = b.dataset.mode;
+  $("modeSeg").querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b));
+  loadCompare();
+});
+
+/* ---------------- 账单核对 ---------------- */
+let srcKind = "oneapi", bill = null;
+
+const tok = v => {
+  if (v == null) return "—";
+  v = +v;
+  if (v >= 1e8) return (v / 1e8).toFixed(2) + "亿";
+  if (v >= 1e4) return (v / 1e4).toFixed(1) + "万";
+  return String(Math.round(v));
+};
+
+function switchTab(t) {
+  $("tabs").querySelectorAll("button").forEach(x => x.classList.toggle("on", x.dataset.tab === t));
+  $("panel-bench").style.display = t === "bench" ? "" : "none";
+  $("panel-bill").style.display = t === "bill" ? "" : "none";
+  if (t === "bill") { renderBillForm(); loadBill(); }
+  if (t === "bench") setTimeout(drawChart, 30);
+}
+
+$("tabs").querySelectorAll("button").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+function setSrc(kind) {
+  srcKind = kind;
+  $("srcSeg").querySelectorAll("button").forEach(
+    x => x.classList.toggle("on", x.dataset.src === kind));
+  $("billErr").innerHTML = "";
+  renderBillForm();
+}
+$("srcSeg").querySelectorAll("button").forEach(
+  b => b.onclick = () => setSrc(b.dataset.src));
+
+/* 采集脚本：给没有通用账单接口的自研站用 */
+function openCollector() {
+  const code = ($("tplCollector").textContent || "").trim();
+  $("capCode").value = code;
+  $("capModal").classList.add("on");
+  const copy = $("capCopy");
+  copy.textContent = "复制脚本";
+  copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      copy.textContent = "已复制 ✓";
+    } catch (e) {
+      $("capCode").focus(); $("capCode").select();
+      copy.textContent = "已全选，Ctrl+C";
+    }
+  };
+}
+$("capCancel").onclick = () => $("capModal").classList.remove("on");
+$("capModal").onclick = e => { if (e.target.id === "capModal") $("capModal").classList.remove("on"); };
+
+/* 粘到站点控制台里跑：用 HttpOnly 的 session cookie 换 access_token，
+   核对一次账号接口，再直接写进本机 RelayHub（不用手动复制长串） */
+const BILL_SNIPPET = `(async () => {
+  const HUBS = ['http://127.0.0.1:8770', 'http://localhost:8770'];
+  const DAYS = 7;            // 想拉几天就改这里
+  const TARGET_ID = null;    // 填目标 id 可指定，留空按域名自动匹配
+
+  // 1) 用浏览器里的 HttpOnly session 换短期 access_token
+  const rf = await fetch('/api/user/auth/refresh', {method:'POST', credentials:'include'});
+  const rj = await rf.json().catch(() => ({}));
+  const tk = rj && rj.data && (rj.data.access_token || rj.data.token);
+  if (!tk) { console.error('没换到令牌：HTTP', rf.status, rj); return; }
+  const H = {Authorization:'Bearer ' + tk, 'Content-Type':'application/json'};
+
+  // 2) 站点参数 + 账号
+  const st = await fetch('/api/status').then(r => r.json()).catch(() => null);
+  const sd = (st && st.data) || {};
+  const me = await fetch('/api/user/self', {headers:H}).then(r => r.json()).catch(() => null);
+  const md = (me && me.data) || {};
+  if (md.id) H['New-Api-User'] = String(md.id);
+  console.log('用户:', md.username || '?', '· id =', md.id, '· 余额额度 =', md.quota);
+
+  // 3) 查一次明细：data 是数组、或 data.items / records / list 两种排版都认
+  //    参数以 / 开头时按完整路径请求（抄站点自己的翻页 URL 时用得上）
+  const get = async (qs) => {
+    const url = qs.charAt(0) === '/' ? qs : '/api/log/self?' + qs;
+    try { mine.add(new URL(url, location.href).href); } catch (e) {}
+    const r = await fetch(url, {headers:H, credentials:'include'});
+    const o = await r.json().catch(() => null);
+    const d = o && o.data;
+    const items = Array.isArray(d) ? d : ((d && (d.items || d.records || d.list)) || []);
+    const total = (d && d.total != null) ? d.total : (o && o.total != null ? o.total : null);
+    return {items: items, total: total};
+  };
+  const mine = new Set();     // 自己发过的请求，抄翻页参数时要跳过
+  const keyOf = (it) => it.id != null ? 'i' + it.id
+    : [it.created_at, it.model_name, it.prompt_tokens, it.completion_tokens, it.quota].join('|');
+  const tsOf = (it) => {
+    let t = (it && (it.created_at || it.createdAt || it.time)) || 0;
+    return t > 1e11 ? Math.floor(t / 1000) : t;
+  };
+
+  // 4) 第一页：不带页码（避开 p 从 0 还是从 1 起算的坑），顺手把每页条数撑大
+  const since = Math.floor(Date.now() / 1000) - DAYS * 86400;
+  let size = 100;
+  let head = await get('page_size=' + size);
+  for (const sz of [2000, 1000, 500, 200]) {
+    const t = await get('page_size=' + sz);
+    if (t.items.length > head.items.length) { head = t; size = sz; }
+    if (head.items.length >= 200) break;      // 一页就装得下，不用再试
+  }
+  let total = head.total;
+
+  const logs = [], seen = new Set();
+  const admit = (arr) => {                    // 去重 + 掐掉窗口外的老数据
+    let fresh = 0;
+    for (const it of arr) {
+      const k = keyOf(it);
+      if (seen.has(k)) continue;
+      seen.add(k); fresh++;
+      const ts = tsOf(it);
+      if (ts && ts < since) continue;
+      logs.push(it);
+    }
+    return fresh;
+  };
+  admit(head.items);
+
+  // 5) 找对的分页参数。
+  //    先按常见名字试（页码从 0 起算和从 1 起算都试一遍）；
+  //    还不行就抄站点自己翻页时用的那个请求 —— 浏览器性能记录里存着它的完整 URL。
+  const CANDS = ['p','page','pageNo','page_no','pageNum','page_num','pageno','pageIndex',
+                 'page_index','pageindex','current','currentPage','pageNumber','pn','no','n','index','idx'];
+  const OFFS = ['offset','skip','start','begin','from'];
+  const firstKey = keyOf(head.items[0]);
+  let pager = null;          // {key, next, step, raw}
+  if (head.items.length >= size) {
+    for (const nm of CANDS) {
+      const t1 = await get(nm + '=1&page_size=' + size);
+      if (t1.items.length && keyOf(t1.items[0]) !== firstKey) {
+        pager = {key: nm, next: 1, step: 1, raw: null};      // 页码从 0 起算
+        break;
+      }
+      const t2 = await get(nm + '=2&page_size=' + size);
+      if (t2.items.length && keyOf(t2.items[0]) !== firstKey) {
+        pager = {key: nm, next: 2, step: 1, raw: null};      // 页码从 1 起算
+        break;
+      }
+    }
+    if (!pager) {                                            // 按偏移量翻页的那类
+      for (const nm of OFFS) {
+        const t = await get(nm + '=' + size + '&page_size=' + size);
+        if (t.items.length && keyOf(t.items[0]) !== firstKey) {
+          pager = {key: nm, next: size, step: size, raw: null};
+          break;
+        }
+      }
+    }
+    if (pager) console.log('分页参数对上了：' + pager.key + '（下一页从 ' + pager.next + ' 起）');
+  }
+
+  const mkQ = (raw, key, v) => {
+    if (!raw) return key + '=' + v + '&page_size=' + size;
+    const u = new URL(raw, location.href);
+    u.searchParams.set(key, String(v));
+    u.searchParams.set('page_size', String(size));
+    return u.pathname + u.search;
+  };
+
+  if (!pager && head.items.length >= size) {
+    const pick = (u) => {
+      try {
+        const url = new URL(u, location.href);
+        if (!/log/i.test(url.pathname)) return null;
+        if (mine.has(url.href)) return null;          // 跳过自己发的请求
+        const ks = Array.from(url.searchParams.keys());
+        for (const k of ks) {
+          const kk = k.toLowerCase();
+          if (/size|limit|length|count/.test(kk)) continue;     // 页大小，不是页码
+          if (!/page|^p$|^pn$|^no$|^n$|num|index|idx|offset|skip|cur|begin/.test(kk)) continue;
+          const v = parseInt(url.searchParams.get(k), 10);
+          if (isFinite(v) && v >= 0) return {href: url.href, key: k, val: v};
+        }
+      } catch (e) {}
+      return null;
+    };
+    const scan = () => {
+      try {
+        const es = performance.getEntriesByType('resource');
+        for (let i = es.length - 1; i >= 0; i--) {
+          const h = pick(es[i].name);
+          if (h) return h;
+        }
+      } catch (e) {}
+      return null;
+    };
+    let hit = scan();
+    if (!hit) {
+      // 这个页面见过日志请求才值得等（说明你现在就在日志页附近）
+      let seen = false;
+      try {
+        seen = performance.getEntriesByType('resource').some((e) => /log/i.test(e.name));
+      } catch (e) {}
+      if (!seen) {
+        console.warn('找不到翻页参数。请打开站点的「使用日志」页面，点一下第 2 页，'
+          + '再把这个脚本重跑一次 —— 它会自动学到这个站真正的翻页参数。');
+      } else {
+        console.warn('还没见到翻页请求。现在点一下「使用日志」的第 2 页，脚本会自己接上（等 60 秒）…');
+        hit = await new Promise((res) => {
+          const t0 = Date.now();
+          const tick = setInterval(() => {
+            const h = scan();
+            if (h) { clearInterval(tick); res(h); return; }
+            if (Date.now() - t0 > 60000) { clearInterval(tick); res(null); }
+          }, 400);
+        });
+      }
+    }
+    if (hit) {
+      const step = /^(offset|skip)$/i.test(hit.key) ? size : 1;
+      const probe = await get(mkQ(hit.href, hit.key, hit.val));
+      const isP1 = probe.items.length && keyOf(probe.items[0]) === firstKey;
+      pager = {key: hit.key, next: isP1 ? hit.val + step : hit.val, step: step, raw: hit.href};
+      console.log('抄到站点自己的翻页请求：' + hit.key + '=' + hit.val
+        + '，从 ' + pager.next + ' 接着往后翻');
+    } else {
+      console.warn('没等到翻页请求，只能按第一页处理');
+    }
+  }
+
+  if (pager) {
+    for (let i = 0; i < 300; i++) {
+      const t = await get(mkQ(pager.raw, pager.key, pager.next));
+      pager.next += pager.step;
+      if (t.total != null) total = t.total;
+      if (!t.items.length) break;
+      if (!admit(t.items)) break;             // 整页重复 = 已经翻到底
+      if (t.items.length < size) break;
+      if (total && logs.length >= total) break;
+    }
+  }
+  if ((!pager || logs.length <= head.items.length) && head.items.length >= size) {
+    // 6) 分页参数一个都不认，就按时间对半切：一段装得下就收，装不下再切
+    console.warn('站点不认常见分页参数，改用时间切片…');
+    const TK = [['start_timestamp','end_timestamp',1],['start_timestamp','end_timestamp',1000],
+                ['start_time','end_time',1],['start','end',1]];
+    const newest = tsOf(head.items[0]) || Math.floor(Date.now() / 1000);
+    const inWin = (it, s, e) => {
+      const x = tsOf(it);
+      return !x || (x >= s - 5 && x <= e + 5);
+    };
+    let tk = null;
+    for (const c of TK) {
+      // 拿一段「过去的」窗口试：过滤真生效的话，返回的记录必须全在这段里
+      const s0 = newest - 3 * 86400, e0 = newest - 86400;
+      const t = await get(c[0] + '=' + s0 * c[2] + '&' + c[1] + '=' + e0 * c[2]
+        + '&page_size=' + size);
+      if (t.items.length && t.items.every((it) => inWin(it, s0, e0))) {
+        tk = {a: c[0], b: c[1], mul: c[2]}; break;
+      }
+    }
+    if (tk) {
+      console.log('时间参数对上了：' + tk.a + ' / ' + tk.b + (tk.mul > 1 ? '（毫秒）' : '（秒）'));
+      let dead = false;
+      const slice = async (s, e, depth) => {
+        if (dead || depth > 5 || e - s < 600) return;
+        const t = await get(tk.a + '=' + s * tk.mul + '&' + tk.b + '=' + e * tk.mul
+          + '&page_size=' + size);
+        if (!t.items.length) return;
+        // 窗口外还冒出记录 = 时间过滤被无视，别再切了
+        if (!t.items.every((it) => inWin(it, s, e))) { dead = true; return; }
+        admit(t.items);
+        if (t.items.length < size) return;
+        const mid = Math.floor((s + e) / 2);
+        if (mid <= s || mid >= e) return;
+        await slice(s, mid, depth + 1);
+        await slice(mid, e, depth + 1);
+      };
+      await slice(since, Math.floor(Date.now() / 1000), 0);
+      if (dead) console.warn('时间过滤没生效，只拿到第一页的 ' + head.items.length + ' 条');
+    } else {
+      console.warn('分页和时间过滤都不认，只拿到第一页的 ' + head.items.length + ' 条');
+    }
+  }
+  console.log('拉到', logs.length, '条明细（去重后；站点 total 报', total, '，窗口', DAYS, '天）');
+  if (total && logs.length < total) {
+    console.warn('还差 ' + (total - logs.length) + ' 条没拉到。页大小和分页都被站点忽略时就会这样，'
+      + '把 DAYS 改小（比如 2）分几次跑，或者就拿现有数据核对。');
+  }
+  if (!logs.length) { console.warn('这个窗口没有明细，把 DAYS 改大一点再跑一次'); return; }
+
+  // 7) 推回本机 RelayHub（127.0.0.1 被拦就换 localhost）
+  const body = {
+    target_id: TARGET_ID, host: location.hostname, days: DAYS,
+    quota_per_unit: sd.quota_per_unit || null,
+    usd_cny: sd.usd_exchange_rate || sd.price || null,
+    user: md, logs: logs
+  };
+  let res = null, lastErr = null;
+  for (const hub of HUBS) {
+    try {
+      res = await fetch(hub + '/api/bill/ingest', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      }).then(r => r.json());
+      if (res) break;
+    } catch (e) { lastErr = e; }
+  }
+  if (res && !res.error) {
+    const tt = (res.latest && res.latest.totals) || {};
+    console.log('%c已写入 RelayHub：' + (tt.cost || 0).toFixed(6) + ' 元 / '
+      + (tt.requests || logs.length) + ' 次', 'color:#0a0;font-weight:600');
+    console.log('回 RelayHub 点一下这个中转站就有账单了');
+    return;
+  }
+  if (res && res.error) { console.error('RelayHub 拒收：', res.error); return; }
+
+  // 8) 被扩展拦了就直接把明细放进剪贴板（回 RelayHub 一键导入）
+  const payload = JSON.stringify({
+    _hub: {quota_per_unit: sd.quota_per_unit || null,
+           usd_cny: sd.usd_exchange_rate || sd.price || null,
+           host: location.hostname, user: md},
+    data: {items: logs}
+  });
+  let how = '';
+  try { copy(payload); how = '剪贴板'; } catch (e) {}
+  if (!how) {
+    try { await navigator.clipboard.writeText(payload); how = '剪贴板'; } catch (e) {}
+  }
+  if (!how) {
+    try {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([payload], {type:'application/json'}));
+      a.download = 'relayhub-bill.json';
+      a.click();
+      how = '文件';
+    } catch (e2) {}
+  }
+  console.warn('浏览器把推送拦了（net::ERR_BLOCKED_BY_CLIENT 基本都是广告拦截扩展干的，'
+    + '它不让网页访问 localhost，那条 CSP 是 report-only 不影响）。'
+    + (how === '剪贴板'
+        ? '已把 ' + logs.length + ' 条明细（含换算参数）复制到剪贴板 —— 回 RelayHub →「账单核对」'
+          + '右上把来源切成「粘贴导入」→ 点「从剪贴板粘贴」，它会自动解析导入。'
+      : how === '文件'
+        ? '已把 ' + logs.length + ' 条明细（含换算参数）下载成 relayhub-bill.json（在你的下载文件夹）'
+          + ' —— 回 RelayHub →「账单核对」→ 来源切「粘贴导入」→ 点「选文件」选中它，'
+          + '或者直接把文件拖到那个大输入框里，会自动解析导入。'
+      : '复制也失败了：' + logs.length + ' 条明细只在控制台变量 logs 里')
+    + ' 想让脚本直推，就把 127.0.0.1 加进拦截扩展白名单（或关掉扩展重跑）。', lastErr);
+})();`;
+
+function renderBillForm() {
+  const box = $("billForm");
+  const saved = (bill && bill.source && bill.source.api_base) || "";
+  const base = saved || (cur ? cur.base_url : "");
+  if (srcKind === "oneapi") {
+    box.innerHTML = `
+      <div class="row">
+        <div class="field" style="flex:1;min-width:260px"><label>站点根地址</label>
+          <input id="b_base" value="${esc(base)}" placeholder="https://xxx.com"></div>
+        <div class="field" style="width:124px"><label>拉最近</label>
+          <select id="b_days"><option value="3">3 天</option><option value="7" selected>7 天</option><option value="30">30 天</option></select></div>
+        <button type="button" id="b_probe">探测</button>
+        <button type="button" class="primary" id="b_sync">同步账单</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="field" style="flex:1;min-width:240px"><label>后台访问令牌（不是 sk- 开头的调用密钥）</label>
+          <input id="b_token" type="password" placeholder="留空则用上次保存的"></div>
+        <div class="field" style="width:140px"><label>用户 ID（可选）</label><input id="b_uid" placeholder="1"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="field" style="flex:1"><label>或整段 Cookie（和令牌二选一；也可直接粘 F12 的「Copy as cURL」）</label>
+          <input id="b_cookie" placeholder="session=... 或 curl 'https://xxx/api/user/self' -H 'cookie: ...'"></div>
+      </div>
+      <div class="hint">
+        多数站是 one-api / new-api 换皮，这套接口通用：先「探测」确认，再「同步」。
+        <b>new-api 系</b>的令牌在 F12 → Application → Local Storage → <code>user</code> 里的
+        <code>access_token</code>（长串随机 / JWT），同一段里的 <code>id</code> 就是用户 ID。
+        <b>OpenSlate 这类自研控制台</b>是 <code>zz_token</code>，用户 ID 留空即可。
+        <br>
+        <b>改版 new-api（报 <code>AUTH_UNAUTHORIZED</code> 的那类，如 freesharenow）</b>不再从前端存令牌，
+        只发一个 HttpOnly 的 <code>session</code> Cookie，账号接口认的是它能换出来的短期 access_token。
+        这种站把 <code>session=...</code> 那一段粘进 Cookie 框就行，同步时会自动拿它换 token；
+        <b>只粘 <code>nsr_did</code> / <code>sidebar_state</code> / <code>new_api_has_session</code> 这些没用</b>（那是界面 cookie）。
+        找不到就最省事的一招：F12 → 网络 → 右键任意一条 <code>/api/</code> 请求 → <b>复制 → 以 cURL (bash) 格式复制</b>，
+        把整段粘进上面的 Cookie 框（令牌框也行），里面的 Cookie、Authorization 会原样照搬。
+        cmd / PowerShell / fetch 这几种复制格式也都认。
+      </div>
+      <details style="margin:2px 0 10px" id="snipWrap">
+        <summary style="cursor:pointer;font-size:12px;color:var(--accent)">
+          连不上站点 / 懒得翻 Cookie？在站点控制台粘一段脚本，账单直接推回来</summary>
+        <div style="margin-top:8px">
+          <textarea id="snipBox" readonly rows="18"
+            style="font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;height:auto;resize:vertical"></textarea>
+          <div class="row" style="margin-top:6px;align-items:center">
+            <button type="button" id="snipCopy">复制脚本</button>
+            <span id="snipMeta" style="font-size:11.5px;color:var(--muted)"></span>
+          </div>
+        </div>
+      </details>
+      <div id="b_probe_out"></div>`;
+    $("b_probe").onclick = probeBill;
+    $("b_sync").onclick = submitBill;
+    const sb = $("snipBox");
+    sb.value = BILL_SNIPPET;
+    sb.style.height = Math.min(sb.scrollHeight + 8, 430) + "px";
+    $("snipMeta").innerHTML = "共 " + BILL_SNIPPET.split("\n").length + " 行，框内可滚动；"
+      + "在站点页面按 F12 → 控制台粘贴回车：它用你的登录态换 access_token，"
+      + "自动试出这个站认的页大小 / 分页参数（都不认就按时间切片），把最近 7 天明细拉全，"
+      + "然后直接写进本机 RelayHub。<b>推送被浏览器扩展拦掉时，它会自己把明细放进剪贴板</b>，"
+      + "回这里「粘贴导入」点一下就完成。"
+    $("snipCopy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(BILL_SNIPPET);
+      } catch (e) {
+        $("snipBox").select(); document.execCommand("copy");
+      }
+      $("snipCopy").textContent = "已复制";
+      setTimeout(() => { $("snipCopy").textContent = "复制脚本"; }, 1500);
+    };
+  } else if (srcKind === "paste") {
+    box.innerHTML = `
+      <textarea id="b_json" placeholder='把后台接口返回的 JSON 贴进来，三种都认：&NewLine;&NewLine;1) one-api 的 {"data":{"items":[...]}} 或 {"data":[...]}&NewLine;2) 任意含 model / prompt_tokens / completion_tokens / cost 的明细数组&NewLine;3) 只有汇总的 {"total_requests":360,"total_cost":0.33721,"total_tokens":4300000}'></textarea>
+      <div class="row" style="margin-top:10px">
+        <div class="field" style="width:184px"><label>金额那一列是什么</label>
+          <select id="b_unit">
+            <option value="auto">自动判断</option>
+            <option value="cny">人民币（元）</option>
+            <option value="quota">站点内部额度</option>
+          </select></div>
+        <button type="button" id="b_clip">从剪贴板粘贴</button>
+        <button type="button" id="b_file">选文件</button>
+        <button type="button" id="b_cap">采集脚本</button>
+        <button type="button" class="primary" id="b_paste">解析导入</button>
+        <input type="file" id="b_filein" accept=".json,.txt,application/json" style="display:none">
+      </div>
+      <div class="hint">
+        三种喂法都行：<b>「从剪贴板粘贴」</b>（控制台脚本复制的数据，粘一下自动导）、
+        <b>「选文件」或直接把文件拖进上面的大框</b>（脚本推送被拦截扩展拦掉时会下载
+        <code>relayhub-bill.json</code>，选它就行）、或者手动 Ctrl+V 粘 JSON。<br>
+        自研后台（OpenSlate 这类没有 <code>/api/user/self</code> 的）用左边的<b>「采集脚本」</b>：
+        在站点后台打开用量页，把脚本粘进 F12 Console 回车，它会自己把账单接口的响应抓下来。<br>
+        手动取法：F12 → Network → 找返回数据的那个请求 → 右键 Response → Copy Response。
+        一次抓回多份响应也认，会自动挑最像账单的那份，重复记录（分页重叠）会自动去重。<br>
+        <b>金额大得离谱（上万块）</b>说明那列是站点内部额度，把上面的「金额那一列」改成
+        「站点内部额度」再解析；从「控制台脚本」过来的数据自带换算参数，直接解析就对。<br>
+        <b>站点的 $ 默认按 1 元算</b>：中转站几乎都是「充 1 元 = $1 额度」，那个 $ 只是符号。
+        真按美元收费的站，导入后在看板下面把「金额换算」切成「按汇率」再重算。
+      </div>`;
+    $("b_paste").onclick = submitBill;
+    $("b_cap").onclick = openCollector;
+    // 脚本推送被扩展拦掉时会下载 relayhub-bill.json，这里直接读它（也支持拖进来）
+    const useText = (t) => {
+      if (!t || !t.trim()) { alert("拿到的内容里没有数据"); return; }
+      $("b_json").value = t;
+      const s = t.trim();
+      if (s.charAt(0) === "{" || s.charAt(0) === "[") setTimeout(() => submitBill(), 200);
+    };
+    $("b_file").onclick = () => $("b_filein").click();
+    $("b_filein").onchange = async (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      try { useText(await f.text()); } catch (err) { alert("读不了这个文件：" + err.message); }
+    };
+    const ta = $("b_json");
+    ta.addEventListener("dragover", (e) => { e.preventDefault(); ta.style.borderColor = "var(--accent)"; });
+    ta.addEventListener("dragleave", () => { ta.style.borderColor = ""; });
+    ta.addEventListener("drop", async (e) => {
+      e.preventDefault(); ta.style.borderColor = "";
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      try { useText(await f.text()); } catch (err) { alert("读不了这个文件：" + err.message); }
+    });
+    $("b_clip").onclick = async () => {
+      try {
+        const t = await navigator.clipboard.readText();
+        if (!t || !t.trim()) throw new Error("剪贴板是空的");
+        $("b_json").value = t;
+        const n = (t.match(/"id"\s*:/g) || []).length;
+        $("b_clip").textContent = n ? "已粘贴 " + n + " 条" : "已粘贴";
+        setTimeout(() => { $("b_clip").textContent = "从剪贴板粘贴"; }, 2000);
+        // 像是 JSON 就直接解析，省掉再点一次
+        const s = t.trim();
+        if (s.charAt(0) === "{" || s.charAt(0) === "[") {
+          setTimeout(() => { if (!$("b_json").value.trim()) return; submitBill(); }, 260);
+        }
+      } catch (e) {
+        alert("读不到剪贴板（" + e.message + "）。\n点一下下面的大框，按 Ctrl+V 效果一样。");
+      }
+    };
+  } else {
+    box.innerHTML = `
+      <div class="row">
+        <div class="field"><label>总请求数</label><input id="m_req" type="number" placeholder="360"></div>
+        <div class="field"><label>总消费 ¥</label><input id="m_cost" type="number" step="0.000001" placeholder="0.33721"></div>
+        <div class="field"><label>输入 token</label><input id="m_in" type="number" placeholder="3800000"></div>
+        <div class="field"><label>输出 token</label><input id="m_out" type="number" placeholder="500000"></div>
+        <div class="field"><label>缓存命中 token</label><input id="m_cache" type="number" placeholder="3000000"></div>
+        <button type="button" class="primary" id="b_manual">保存</button>
+      </div>
+      <div class="hint">
+        后台顶部那几个大数字抄过来就行。输入/输出拆不开就只填前两项——
+        体检会自动跳过算不了的项目，不会瞎猜。
+      </div>`;
+    $("b_manual").onclick = submitBill;
+  }
+}
+
+async function probeBill() {
+  const out = $("b_probe_out");
+  const base = (($("b_base") || {}).value || "").trim() || (cur ? cur.base_url : "");
+  out.innerHTML = '<div class="note">探测中…</div>';
+  try {
+    const r = await api("/api/bill/probe", "POST", {api_base: base});
+    const ok = r.kind === "oneapi" || r.kind === "openslate";
+    const cls = ok ? "" : "warn";
+    out.innerHTML = `<div class="note ${cls}">
+      ${r.kind === "oneapi" ? "✅ 识别为 one-api / new-api 系，可以直连"
+        : r.kind === "openslate"
+          ? "✅ 识别为自研控制台" + (r.site_name ? "（" + esc(r.site_name) + "）" : "") + "，可以直连"
+          : "⚠️ 没认出账单接口，改用粘贴或手填"}
+      ${r.version ? " · " + esc(r.version) : ""}
+      ${r.quota_per_unit ? " · 额度单位 " + r.quota_per_unit : ""}
+      <br>${(r.notes || []).map(esc).join("<br>")}
+      ${r.kind === "oneapi" ?
+        '<div class="hint" style="margin-top:8px;font-size:12px">令牌拿法：站点后台 →「个人设置 / 安全设置」→「生成系统访问令牌」。'
+        + '用 Cookie 登录态时（F12 → Application → Cookies 复制 <code>session</code> 的值），用户 ID 必须填。</div>' : ""}
+      ${ok ? "" :
+        '<div style="margin-top:9px"><button type="button" id="toCap" style="padding:5px 11px;font-size:12px">用采集脚本抓 →</button></div>'}
+    </div>`;
+    const tc = $("toCap");
+    if (tc) tc.onclick = () => { setSrc("paste"); openCollector(); };
+  } catch (e) {
+    out.innerHTML = `<div class="note bad">${esc(e.message)}</div>`;
+  }
+}
+
+async function submitBill() {
+  if (!cur) { alert("先在左边选一个目标"); return; }
+  const btn = $("b_sync") || $("b_paste") || $("b_manual");
+  const label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "处理中…"; }
+  $("billErr").innerHTML = "";
+  try {
+    let r;
+    if (srcKind === "oneapi") {
+      r = await api("/api/bill/sync", "POST", {
+        target_id: cur.id, kind: "auto",
+        api_base: ($("b_base").value || "").trim(),
+        token: ($("b_token").value || "").trim(),
+        cookie: ($("b_cookie").value || "").trim(),
+        user_id: ($("b_uid").value || "").trim(),
+        days: +$("b_days").value,
+      });
+    } else if (srcKind === "paste") {
+      if (!($("b_json").value || "").trim()) throw new Error("先把 JSON 贴进来");
+      r = await api("/api/bill/paste", "POST", {
+        target_id: cur.id, json: $("b_json").value, cost_unit: $("b_unit").value,
+      });
+    } else {
+      r = await api("/api/bill/manual", "POST", {
+        target_id: cur.id,
+        requests: +$("m_req").value || 0, cost: +$("m_cost").value || 0,
+        tin: +$("m_in").value || 0, tout: +$("m_out").value || 0,
+        tcache: +$("m_cache").value || 0,
+      });
+    }
+    const keep = cur ? cur.id : null;
+    const hadPrice = !!(cur && cur.price && cur.price.in);
+    bill = r;
+    renderBillForm();
+    renderBill();
+    // 同步时如果顺手按站点牌价补了标价，刷新左栏的折扣徽章
+    if (keep && !hadPrice && r.target && r.target.price && r.target.price.in) {
+      await refresh();
+      const nt = targets.find(x => x.id === keep);
+      if (nt) select(nt);
+    }
+  } catch (e) {
+    const msg = e.message || "";
+    const net = /连不上|Tunnel|timed out|超时|502|getaddrinfo|Connection refused|ERR_/i.test(msg);
+    $("billErr").innerHTML = `<div class="note bad">${esc(msg)}</div>` +
+      (net && srcKind === "oneapi"
+        ? '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">'
+          + '<button type="button" id="goSnip" style="padding:5px 11px;font-size:12px">↑ 用控制台脚本拉账单</button>'
+          + '<button type="button" id="goPaste" style="padding:5px 11px;font-size:12px">已经复制了，改用手动粘贴</button>'
+          + '</div>'
+        : "");
+    const gs = $("goSnip");
+    if (gs) gs.onclick = () => {
+      const w = $("snipWrap");
+      if (w) { w.open = true; w.scrollIntoView({ block: "center" }); }
+    };
+    const gp = $("goPaste");
+    if (gp) gp.onclick = () => {
+      setSrc("paste");
+      setTimeout(() => { const b = $("b_clip"); if (b) b.click(); }, 120);
+    };
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+
+async function loadBill() {
+  if (!cur) { bill = null; renderBill(); return; }
+  try { bill = await api("/api/bill/" + cur.id); }
+  catch (e) { bill = null; }
+  renderBill();
+}
+
+// 报告是「读的时候现算」的（账单 + 最近一次压测 + 目标里填的标价），
+// 所以站点改价、导入了新账单之后点一下就能变，不用重开页面。
+async function reAudit() {
+  if (!cur) { alert("先在左边选一个中转站"); return; }
+  const b = $("reAudit"), old = b.textContent;
+  b.disabled = true; b.textContent = "重算中…";
+  try { await loadBill(); }
+  finally { b.disabled = false; b.textContent = old; }
+}
+$("reAudit").onclick = reAudit;
+
+function renderBill() {
+  $("billWho").textContent = cur ? cur.name : "未选择目标";
+  const a = bill && bill.audit, latest = bill && bill.latest;
+  // 没数据就把看板/模型/历史收起来，只留「获取账单」和一句引导
+  ["billBoardSec", "billModelSec", "billHistSec"].forEach(
+    id => { const el = $(id); if (el) el.style.display = latest ? "" : "none"; });
+
+  if (!cur) {
+    $("reportMeta").textContent = "";
+    $("billReport").innerHTML = '<div class="empty">先在左边选一个中转站</div>';
+    [$("billCards"), $("billModels"), $("billHist"), $("billNotes"), $("billRate")]
+      .forEach(el => { if (el) el.innerHTML = ""; });
+    return;
+  }
+  if (!latest) {
+    $("billReport").innerHTML = `<div class="empty" style="padding:26px 18px;line-height:2">
+      还没有这个站的账单。上面同步一次，或者切到「手填汇总」把后台那几个大数字抄进来。<br>
+      <span style="font-size:12px;color:#94a3b8">
+        拿到账单后这里会逐项告诉你：单价对不对、缓存有没有真省钱、有没有偷偷换模型、账单自己能不能对上。
+      </span></div>`;
+    $("billCards").innerHTML = "";
+    $("billRate").innerHTML = "";
+    $("billModels").innerHTML = '<tr><td colspan="5" class="empty">暂无</td></tr>';
+    $("billNotes").innerHTML = "";
+    $("reportMeta").textContent = "";
+    renderBillHist(bill ? bill.history : []);
+    return;
+  }
+
+  let h = `<div class="score ${a.level}">
+    <div class="n">${a.score == null ? "—" : a.score}</div>
+    <div class="txt"><b>${esc(a.headline)}</b><span>${esc(a.sub)}</span></div>
+    <span class="tag">跑通 ${a.ran || 0}/${a.total_checks || 9} 项检查</span>
+  </div>`;
+  h += (a.checks || []).map(c => `
+    <div class="chk ${c.level}">
+      <i class="dot"></i>
+      <div class="t">${esc(c.title)}</div>
+      <div><div class="d">${esc(c.detail)}</div>${c.hint ? `<div class="h">${esc(c.hint)}</div>` : ""}</div>
+    </div>`).join("");
+  $("billReport").innerHTML = h;
+  // 让人知道这份报告是按哪份账单、什么时候算出来的（站点改价/换数据后点「重新体检」会变）
+  const bs = ({oneapi: "直连同步", openslate: "直连同步", paste: "粘贴导入",
+               script: "脚本推送", manual: "手填"}[latest.source] || latest.source);
+  $("reportMeta").textContent = [
+    bs, latest.taken_at ? latest.taken_at.slice(5) : "",
+    latest.log_count ? latest.log_count + " 条明细" : "无明细",
+    "重算于 " + new Date().toLocaleTimeString("zh-CN", {hour12: false}),
+  ].filter(Boolean).join(" · ");
+
+  const t = latest.totals || {};
+  const tot = (t.in || 0) + (t.out || 0);
+  const blended = tot > 0 && t.cost > 0 ? t.cost / tot * 1e6 : null;
+  const cacheRate = t.in > 0 ? (t.cache || 0) / t.in : null;
+  const c = a.cost || {};
+  const zhe = c.official > 0 && c.actual > 0 ? c.actual / c.official : null;
+  $("billCards").innerHTML = `
+    <div class="card"><div class="k">账单请求数</div>
+      <div class="v">${tok(t.requests)}<small>次</small></div></div>
+    <div class="card"><div class="k">站点记的消费</div>
+      <div class="v">${money(t.cost)}</div></div>
+    <div class="card"><div class="k">综合单价</div>
+      <div class="v">${blended == null ? "—" : "¥" + blended.toFixed(3)}<small>/M tok</small></div></div>
+    <div class="card"><div class="k">缓存命中率</div>
+      <div class="v">${cacheRate == null ? "—" : (cacheRate * 100).toFixed(0) + "%"}</div></div>
+    <div class="card" title="按账单实扣金额对比官方直连的同量请求。这个数低说明「确实省钱」，但不代表它按标价收费。">
+      <div class="k">对比官方直连</div>
+      <div class="v ${zhe != null && zhe > 1.05 ? "bad" : "good"}">${zhe == null ? "—" : (zhe * 10).toFixed(2) + " 折"}</div></div>
+    <div class="card"><div class="k">输入 / 输出</div>
+      <div class="v" style="font-size:15px">${tok(t.in)}<small> / </small>${tok(t.out)}</div></div>`;
+
+  $("billMeta").textContent = [
+    {oneapi: "直连同步", openslate: "直连同步", paste: "粘贴导入", manual: "手填", script: "脚本推送"}[latest.source] || latest.source,
+    latest.taken_at, latest.log_count ? latest.log_count + " 条明细" : "",
+  ].filter(Boolean).join(" · ");
+
+  const models = latest.models || [];
+  const totalCalls = models.reduce((s, m) => s + m.calls, 0) || 1;
+  $("billModels").innerHTML = models.length ? models.map(m => {
+    const same = cur && m.model === cur.model;
+    return `<tr>
+      <td><b>${esc(m.model)}</b> ${same ? '<span class="tag">你指定的</span>'
+        : '<span class="tag" style="background:#fee2e2;color:#b91c1c">非指定</span>'}</td>
+      <td class="num">${tok(m.calls)}</td>
+      <td class="num">${tok(m.tokens)}</td>
+      <td class="num">${money(m.cost)}</td>
+      <td class="num">${(m.calls / totalCalls * 100).toFixed(0)}%</td>
+    </tr>`;
+  }).join("") : '<tr><td colspan="5" class="empty">这份账单没有模型明细</td></tr>';
+
+  const notes = latest.notes || [];
+  $("billNotes").innerHTML = notes.map(n => `<div class="note">${esc(n)}</div>`).join("");
+
+  drawBillChart(latest);
+  renderBillRate(latest);
+  renderBillHist(bill.history || []);
+}
+
+// 站点的「$」到底是不是真美元：几乎所有中转站都是「充 1 元给 $1」，
+// 之前按 7.3 折算，等于把账单放大 7 倍。这里给个开关，改不动数据就重算一遍。
+function renderBillRate(latest) {
+  const box = $("billRate");
+  if (!box) return;
+  const acc = (latest && latest.account) || {};
+  if (!latest || (acc.unit !== "quota" && acc.unit !== "cny") || !acc.cny_per_quota) {
+    box.innerHTML = "";
+    return;
+  }
+  if (acc.unit === "cny") {
+    box.innerHTML = '<span class="sub muted">金额换算：这份账单的金额列本来就是人民币，'
+      + "不用换算</span>";
+    return;
+  }
+  const fx = Math.abs((acc.usd_cny || 1) - 1) > 1e-9;
+  const site = acc.site_rate || 7.1;
+  box.innerHTML = `
+    <span class="sub muted">金额换算</span>
+    <select id="b_rate" style="width:auto;padding:4px 8px;font-size:12.5px">
+      <option value="one"${fx ? "" : " selected"}>1 美元额度 = 1 元（$ 只是符号）</option>
+      <option value="fx"${fx ? " selected" : ""}>按汇率折成人民币</option>
+    </select>
+    <input id="b_fx" type="number" step="0.01" min="0.01" value="${site}"
+      style="width:88px;padding:4px 8px;font-size:12.5px${fx ? "" : ";display:none"}"
+      title="站点若真按美元收费，把汇率填在这">
+    <button type="button" id="b_recalc" style="padding:4px 11px;font-size:12px">按这个重算</button>
+    <span class="sub muted" id="b_rate_now"></span>`;
+  const sel = $("b_rate"), fxin = $("b_fx"), btn = $("b_recalc"), now = $("b_rate_now");
+  now.textContent = fx
+    ? "当前：$1 按 " + (acc.usd_cny || 0) + " 元折算"
+    : "当前：1:1，账单金额就是人民币";
+  sel.onchange = () => { fxin.style.display = sel.value === "fx" ? "" : "none"; };
+  btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = "重算中…";
+    try {
+      bill = await api("/api/bill/recalc", "POST", {
+        target_id: cur.id, rate_mode: sel.value,
+        usd_cny: sel.value === "fx" ? (+fxin.value || null) : null,
+      });
+      renderBill();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "按这个重算";
+      alert(e.message || "重算失败");
+    }
+  };
+}
+
+function renderBillHist(rows) {
+  const box = $("billHist");
+  if (!rows || !rows.length) {
+    box.innerHTML = '<tr><td colspan="7" class="empty">暂无</td></tr>';
+    return;
+  }
+  const label = {oneapi: "直连", paste: "粘贴", manual: "手填", script: "脚本"};
+  box.innerHTML = rows.slice().reverse().map(h => `<tr>
+    <td>${esc(h.taken_at || "")}</td>
+    <td><span class="tag">${label[h.source] || esc(h.source || "")}</span></td>
+    <td class="num">${tok(h.totals.requests)}</td>
+    <td class="num">${money(h.totals.cost)}</td>
+    <td class="num">${tok(h.totals.in)} / ${tok(h.totals.out)}</td>
+    <td class="num">${tok(h.totals.cache)}</td>
+    <td><button type="button" data-bdel="${h.id}" style="padding:1px 8px;font-size:11px">删</button></td>
+  </tr>`).join("");
+  box.querySelectorAll("[data-bdel]").forEach(b => b.onclick = async () => {
+    await api("/api/bill/delete", "POST", {id: +b.dataset.bdel});
+    await loadBill();
+  });
+}
+
+function drawBillChart(latest) {
+  const c = $("billChart");
+  if (!c || !c.clientWidth) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  const days = (latest.days || []).slice(-14);
+  if (!days.length) {
+    g.fillStyle = "#9aa3af"; g.font = "13px sans-serif";
+    g.fillText("这份账单没有按天的数据", 12, 30);
+    return;
+  }
+  const padL = 62, padR = 14, top = 14, bot = 24;
+  const maxV = Math.max.apply(null, days.map(d => d.cost || 0).concat([1e-9])) * 1.2;
+  const bw = (w - padL - padR) / days.length;
+  g.strokeStyle = "#eef2f7"; g.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const y = top + (h - top - bot) * i / 3;
+    g.beginPath(); g.moveTo(padL, y); g.lineTo(w - padR, y); g.stroke();
+  }
+  days.forEach((d, i) => {
+    const bh = Math.max(1, (h - top - bot) * (d.cost || 0) / maxV);
+    // 只有一两天数据时柱子别横着长满屏，限个宽再居中
+    const barW = Math.max(3, Math.min(bw * 0.64, 54));
+    const x = padL + i * bw + (bw - barW) / 2;
+    g.fillStyle = "#2f6fed";
+    g.fillRect(x, h - bot - bh, barW, bh);
+    g.fillStyle = "#64748b"; g.font = "10.5px ui-monospace,Consolas,monospace";
+    g.textAlign = "center";
+    g.fillText(String(d.day || "").slice(5), x + barW / 2, h - 7);
+  });
+  g.textAlign = "left"; g.fillStyle = "#94a3b8"; g.font = "10.5px sans-serif";
+  g.fillText("¥" + maxV.toFixed(3), 6, top + 4);
+}
+
+$("billClear").onclick = async () => {
+  if (!cur) return;
+  if (!confirm("清空「" + cur.name + "」的全部账单记录？目标本身不会被删。")) return;
+  await api("/api/bill/delete", "POST", {target_id: cur.id, all: true});
+  await loadBill();
+};
+
+setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("zh-CN"); }, 1000);
+boot().then(loadHistory);
+</script>
+</body>
+</html>

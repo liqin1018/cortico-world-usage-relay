@@ -3298,7 +3298,7 @@ function mountConfig(ctx) {
     body.append(svc);
 
     /* 服务设置 */
-    const { sec: set, body: setBody } = rhSection('服务设置', '目录搬家后改这里；保存后立即生效');
+    const { sec: set, body: setBody } = rhSection('服务设置', '插件自带服务和 Python，一般不用改；只有换端口/目录搬家才需要动');
     const grid = el('div', undefined, 'tb-rh-form-grid');
     const mk = (label, key, value, placeholder, hint) => {
       const f = el('label', undefined, 'tb-rh-field');
@@ -3313,8 +3313,8 @@ function mountConfig(ctx) {
       return input;
     };
     const urlIn = mk('对照台地址', 'relayUrl', cfg.relayUrl || (st.url || ''), 'http://127.0.0.1:8770/');
-    const pyIn = mk('Python 路径（可选）', 'relayPython', cfg.relayPython || '', '留空自动查找（优先 pythonw.exe）', '填 pythonw.exe 的完整路径就不会弹命令行窗口');
-    const scriptIn = mk('启动脚本路径', 'relayStartScript', cfg.relayStartScript || '', 'RelayHub-service.bat');
+    const pyIn = mk('Python 路径（一般不用填）', 'relayPython', cfg.relayPython || '', '留空 = 用插件自带的 Python', '插件包内已带嵌入式 Python（runtime/python），别人下载后不用另装');
+    const scriptIn = mk('服务脚本（一般不用填）', 'relayStartScript', cfg.relayStartScript || '', '留空 = 插件自带的 relay/server.py', '只有你想换成自己那份对照台时才填');
     setBody.append(grid);
     const saveSvc = rhBtn('保存服务设置', 'tb-primary', () =>
       save(

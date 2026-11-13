@@ -3,6 +3,7 @@ import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { fileURLToPath } from 'node:url';
 
 const TOOL_DECL = {
   name: 'tokenboard_usage',
@@ -68,7 +69,15 @@ function cleanBilling(input) {
 }
 
 const DEFAULT_RELAY_URL = 'http://127.0.0.1:8770/';
-const DEFAULT_RELAY_SCRIPT = 'F:/AI/WorkBuddy-workspace/2026-11-03-11-56-09/RelayHub-service.bat';
+/** 留空 = 用插件包内自带的对照台服务；老用户填过的路径仍然有效。 */
+const DEFAULT_RELAY_SCRIPT = '';
+/** 早期版本写死的开发机路径：读到就当作没填，改用内置服务。 */
+const LEGACY_RELAY_SCRIPTS = new Set(['F:/AI/WorkBuddy-workspace/2026-11-03-11-56-09/RelayHub-service.bat']);
+const EXT_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const BUILTIN_RELAY_DIR = path.join(EXT_ROOT, 'relay');
+const BUILTIN_RELAY_SERVER = path.join(BUILTIN_RELAY_DIR, 'server.py');
+/** 插件自带的嵌入式 Python（免安装），没有就退回系统 Python。 */
+const BUNDLED_PYTHON = path.join(EXT_ROOT, 'runtime', 'python', 'pythonw.exe');
 
 function pad2(v) {
   return String(v).padStart(2, '0');
@@ -812,7 +821,8 @@ export class TokenBoardWorld {
         dailyAlertTokens: Number(live.dailyAlertTokens ?? this.cfg.dailyAlertTokens ?? 0) || 0,
         relayUrl: String(live.relayUrl || this.cfg.relayUrl || DEFAULT_RELAY_URL),
         relayPython: String(live.relayPython || this.cfg.relayPython || ''),
-        relayStartScript: String(live.relayStartScript || this.cfg.relayStartScript || DEFAULT_RELAY_SCRIPT),
+        // 走 relayConfig()，会把早期写死的开发机路径过滤成空（= 内置）
+        relayStartScript: this.relayConfig().script,
         relayAutoStart: typeof live.relayAutoStart === 'boolean' ? live.relayAutoStart : !!(this.cfg && this.cfg.relayAutoStart),
         billing: cleanBilling(live.billing || this.cfg.billing || {}),
       },
@@ -867,10 +877,11 @@ export class TokenBoardWorld {
   relayConfig() {
     const live = this.usageCfg();
     const pick = (key, dflt) => {
+      const ok = (x) => typeof x === 'string' && x.trim() && !LEGACY_RELAY_SCRIPTS.has(x.trim());
       const v = live && live[key];
-      if (typeof v === 'string' && v.trim()) return v.trim();
+      if (ok(v)) return v.trim();
       const mem = this.cfg && this.cfg[key];
-      if (typeof mem === 'string' && mem.trim()) return mem.trim();
+      if (ok(mem)) return mem.trim();
       return dflt;
     };
     return {
@@ -882,22 +893,51 @@ export class TokenBoardWorld {
 
   relayPaths() {
     const cfg = this.relayConfig();
-    const root = path.dirname(cfg.script);
+    let server = BUILTIN_RELAY_SERVER;
+    let script = BUILTIN_RELAY_SERVER;
+    let dir = BUILTIN_RELAY_DIR;
+
+    // 只在用户显式填了路径、且文件真的存在时才覆盖内置服务
+    const custom = String(cfg.script || '').trim();
+    try {
+      if (custom && fs.existsSync(custom)) {
+        if (/\.py$/i.test(custom)) {
+          server = custom;
+          script = custom;
+          dir = path.dirname(custom);
+        } else {
+          // 老式 .bat：按 <root>/relayhub/server.py 找
+          const legacy = path.join(path.dirname(custom), 'relayhub', 'server.py');
+          if (fs.existsSync(legacy)) {
+            server = legacy;
+            script = custom;
+            dir = path.dirname(legacy);
+          }
+        }
+      }
+    } catch {
+      /* 路径不可读就继续用内置的 */
+    }
+
     let port = 8770;
     try {
       port = Number(new URL(cfg.url).port) || 8770;
     } catch {
       port = 8770;
     }
+
+    const dataDir = path.join(this.dataDir || '.', 'relayhub');
     return {
       url: cfg.url,
-      script: cfg.script,
-      root,
-      server: path.join(root, 'relayhub', 'server.py'),
-      pyDir: path.join(root, 'relayhub'),
+      script,
+      root: dir,
+      server,
+      pyDir: dir,
       port,
-      log: path.join(root, 'relayhub', 'relay-service.log'),
+      dataDir,
+      log: path.join(dataDir, 'relay-service.log'),
       python: cfg.python,
+      builtin: server === BUILTIN_RELAY_SERVER,
     };
   }
 
@@ -905,6 +945,8 @@ export class TokenBoardWorld {
   findPython() {
     const cfg = this.relayConfig();
     const cands = [];
+    // 优先用插件自带的嵌入式 Python：用户不用装任何东西
+    cands.push(BUNDLED_PYTHON);
     if (cfg.python) cands.push(cfg.python);
     const home = process.env.USERPROFILE || process.env.HOME || '';
     const vers = path.join(home, '.workbuddy', 'binaries', 'python', 'versions');
@@ -1083,6 +1125,7 @@ export class TokenBoardWorld {
       script: p.script,
       server: p.server,
       hasServer: fs.existsSync(p.server),
+      builtin: !!p.builtin,
       python,
       log: p.log,
       canStart: fs.existsSync(p.server) || fs.existsSync(p.script),
@@ -1130,6 +1173,7 @@ export class TokenBoardWorld {
       }
       let fd = null;
       try {
+        fs.mkdirSync(p.dataDir, { recursive: true });
         fs.mkdirSync(path.dirname(p.log), { recursive: true });
         fd = fs.openSync(p.log, 'a');
         fs.writeSync(fd, `\n[${new Date().toISOString()}] 启动：${py} server.py ${p.port}\n`);
@@ -1142,6 +1186,8 @@ export class TokenBoardWorld {
           cwd: p.pyDir,
           detached: true,
           windowsHide: true,
+          // 账单/站点数据写到用户数据目录：插件升级不会把 data.db 覆盖掉
+          env: Object.assign({}, process.env, { RELAYHUB_DATA_DIR: p.dataDir }),
           stdio: ['ignore', fd == null ? 'ignore' : fd, fd == null ? 'ignore' : fd],
         });
         child.on('error', (e) => {

@@ -43,3 +43,14 @@ Coopanion 的 World 扩展：看 Coopanion 自己的 token 消耗，也管中转
 - 总量 = 输入 + 输出；「缓存命中」是输入中命中前缀缓存的部分（上游单独计费折扣）。
 - 缓存命中率 = 缓存命中 ÷ 输入。
 - 时间按本地区整点归档（usage.jsonl 的 ts 已带本地时区）。
+
+## 免安装说明
+
+插件包里已经带了对照台服务（`relay/`）和 Windows 嵌入式 Python（`runtime/python/`），
+别人下载后不需要另装 Python，也不用填任何路径：
+
+- 「服务脚本」留空 → 用内置的 `relay/server.py`
+- 「Python 路径」留空 → 用内置的 `runtime/python/pythonw.exe`
+- 站点/账单数据存在 Coopanion 数据目录的 `relayhub/data.db`，升级插件不会覆盖
+
+只有想换成自己那份对照台（或系统 Python）时，才需要在这两项里填路径。
