@@ -941,6 +941,22 @@ export class TokenBoardWorld {
     };
   }
 
+  /** 老版本把 data.db 放在脚本旁边；首次用内置服务时把它搬过来，站点和账单不丢。 */
+  legacyRelayDb() {
+    const live = this.usageCfg() || {};
+    const raw = String(live.relayStartScript || (this.cfg && this.cfg.relayStartScript) || '').trim();
+    if (!raw) return null;
+    const dir = path.dirname(raw);
+    for (const cand of [path.join(dir, 'data.db'), path.join(dir, 'relayhub', 'data.db')]) {
+      try {
+        if (fs.existsSync(cand)) return cand;
+      } catch {
+        /* ignore */
+      }
+    }
+    return null;
+  }
+
   // 找一个可用的 Python：优先 pythonw.exe（无控制台窗口）
   findPython() {
     const cfg = this.relayConfig();
@@ -1175,6 +1191,12 @@ export class TokenBoardWorld {
       try {
         fs.mkdirSync(p.dataDir, { recursive: true });
         fs.mkdirSync(path.dirname(p.log), { recursive: true });
+        // 首次切到内置服务：把旧 data.db 复制过来（只在新库不存在时）
+        const newDb = path.join(p.dataDir, 'data.db');
+        const oldDb = this.legacyRelayDb();
+        if (oldDb && !fs.existsSync(newDb)) {
+          fs.copyFileSync(oldDb, newDb);
+        }
         fd = fs.openSync(p.log, 'a');
         fs.writeSync(fd, `\n[${new Date().toISOString()}] 启动：${py} server.py ${p.port}\n`);
       } catch {
