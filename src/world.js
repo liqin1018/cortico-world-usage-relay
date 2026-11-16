@@ -400,8 +400,19 @@ export class TokenBoardWorld {
     if (!cache.data) return { ok: false, message: cache.err || '用量日志里还没有记录', file: this.usageFile() };
     const days = [...cache.data.keys()].sort().reverse();
     if (!days.length) return { ok: false, message: '用量日志里还没有记录', file: this.usageFile() };
-    const date = days.includes(wantDate) ? wantDate : days[0];
-    const D = cache.data.get(date);
+    // 允许查任意一天：日志里没有记录的那天返回全 0，而不是偷偷跳回最新一天
+    const want = String(wantDate || '');
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(want) ? want : days[0];
+    const emptyDay = () => ({
+      calls: 0,
+      input: 0,
+      output: 0,
+      hit: 0,
+      total: 0,
+      hours: Array.from({ length: 24 }, () => ({ calls: 0, input: 0, output: 0, hit: 0, total: 0 })),
+      models: new Map(),
+    });
+    const D = cache.data.get(date) || emptyDay();
 
     const n0 = new Date();
     const today = localDateStr(n0);

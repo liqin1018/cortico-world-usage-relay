@@ -3380,7 +3380,9 @@ export default {
           mode: 'bar',
           drill: null, // 下钻的小时（数字）或 null
           minutes: null, // minutes 载荷
-          range: '14d', // 历史表范围：14d / week / month / all
+          range: '14d', // 历史表范围：14d / week / month / all / custom
+          from: '', // 自定义区间起止（YYYY-MM-DD）
+          to: '',
           rangeData: null, // range 载荷
           loading: false,
         };
@@ -3390,6 +3392,7 @@ export default {
           { key: 'week', name: '本周' },
           { key: 'month', name: '本月' },
           { key: 'all', name: '全部' },
+          { key: 'custom', name: '自定义…' },
         ];
 
         /* ---------- 顶部工具行 ---------- */
@@ -3400,7 +3403,9 @@ export default {
         titleWrap.append(title, source);
 
         const tools = el('div', undefined, 'tb-tools');
-        const dateSel = el('select', undefined, 'tb-select');
+        const dateSel = el('input', undefined, 'tb-select tb-date');
+        dateSel.type = 'date';
+        dateSel.title = '选择任意一天';
         const tabs = el('div', undefined, 'tb-tabs');
         for (const m of Object.values(METRICS)) {
           const b = el('button', m.name, 'tb-tab' + (m.key === state.metric ? ' on' : ''));
@@ -3461,18 +3466,14 @@ export default {
           const d = state.data;
           if (!d || !d.ok) {
             source.textContent = '';
-            dateSel.replaceChildren();
-            const opt = el('option', '无数据');
-            dateSel.append(opt);
+            dateSel.value = '';
             dateSel.disabled = true;
             return;
           }
           dateSel.disabled = false;
-          dateSel.replaceChildren();
-          for (const day of d.days.slice(0, 14)) {
-            const opt = el('option', day);
-            opt.value = day;
-            dateSel.append(opt);
+          if (Array.isArray(d.days) && d.days.length) {
+            dateSel.min = d.days[d.days.length - 1];
+            dateSel.max = d.days[0];
           }
           dateSel.value = d.date;
           source.textContent =
@@ -3703,6 +3704,12 @@ export default {
         function rangeBounds() {
           const d = state.data;
           if (!d || !d.ok || !d.days.length) return null;
+          if (state.range === 'custom') {
+            if (!state.from || !state.to) return null;
+            return state.from <= state.to
+              ? { from: state.from, to: state.to }
+              : { from: state.to, to: state.from };
+          }
           const latest = d.days[0];
           let from = d.days[d.days.length - 1];
           if (state.range === '14d') {
@@ -3730,6 +3737,43 @@ export default {
           }
         }
 
+        function renderCustomRange() {
+          const d = state.data;
+          const earliest = d && d.ok ? d.days[d.days.length - 1] : '';
+          const latest = d && d.ok ? d.days[0] : '';
+          const row = el('div', undefined, 'tb-range-custom');
+          const mk = (val) => {
+            const inp = el('input', undefined, 'tb-select tb-date-xs');
+            inp.type = 'date';
+            inp.value = val || '';
+            if (earliest) inp.min = earliest;
+            if (latest) inp.max = latest;
+            return inp;
+          };
+          const fromIn = mk(state.from);
+          const toIn = mk(state.to);
+          const apply = () => {
+            let a = fromIn.value;
+            let b = toIn.value;
+            if (!a || !b) return;
+            if (a > b) {
+              const t = a;
+              a = b;
+              b = t;
+              fromIn.value = a;
+              toIn.value = b;
+            }
+            state.from = a;
+            state.to = b;
+            loadRange().then(renderTables);
+          };
+          fromIn.addEventListener('change', apply);
+          toIn.addEventListener('change', apply);
+          row.append(el('span', '从', 'tb-range-lbl'), fromIn, el('span', '到', 'tb-range-lbl'), toIn);
+          row.append(rhBtn('查看', 'tb-ghost', apply));
+          return row;
+        }
+
         function renderTables() {
           tables.replaceChildren();
           const d = state.data;
@@ -3748,10 +3792,19 @@ export default {
           }
           rangeSel.addEventListener('change', () => {
             state.range = rangeSel.value;
+            if (state.range === 'custom') {
+              const d0 = state.data;
+              if (d0 && d0.ok) {
+                const latest = d0.days[0] || d0.date;
+                if (!state.to) state.to = latest;
+                if (!state.from) state.from = d0.days[Math.min(13, d0.days.length - 1)] || latest;
+              }
+            }
             loadRange().then(renderTables);
           });
           histHead.append(rangeSel);
           histCard.append(histHead);
+          if (state.range === 'custom') histCard.append(renderCustomRange());
           const tbl1 = el('table', undefined, 'tb-table');
           const thead1 = el('thead');
           const trh = el('tr');
@@ -3796,6 +3849,45 @@ export default {
               el('td', t.input > 0 ? fmtPct(t.hit / t.input) : '—')
             );
             tbody1.append(trF);
+
+            // 日均 / 中位数：不同天数直接对比时更好看
+            const ds = rd.days;
+            const nDays = ds.length || 1;
+            const med = (nums) => {
+              const a = nums.filter((x) => Number.isFinite(x)).sort((x, y) => x - y);
+              if (!a.length) return 0;
+              const mid = Math.floor(a.length / 2);
+              return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+            };
+            const rate = (hit, input) => (input > 0 ? fmtPct(hit / input) : '—');
+            const rateMed = (() => {
+              const rs = ds.filter((x) => x.input > 0).map((x) => x.hit / x.input);
+              return rs.length ? rate(med(rs), 1) : '—';
+            })();
+
+            const avgRow = el('tr', undefined, 'avg');
+            avgRow.append(
+              el('td', '日均（' + ds.length + ' 天）'),
+              el('td', fmtInt(Math.round(t.calls / nDays))),
+              el('td', fmtCn(t.total / nDays)),
+              el('td', fmtCn(t.input / nDays)),
+              el('td', fmtCn(t.output / nDays)),
+              el('td', fmtCn(t.hit / nDays)),
+              el('td', rate(t.hit, t.input))
+            );
+            tbody1.append(avgRow);
+
+            const medRow = el('tr', undefined, 'med');
+            medRow.append(
+              el('td', '中位数（' + ds.length + ' 天）'),
+              el('td', fmtInt(Math.round(med(ds.map((x) => x.calls))))),
+              el('td', fmtCn(med(ds.map((x) => x.total)))),
+              el('td', fmtCn(med(ds.map((x) => x.input)))),
+              el('td', fmtCn(med(ds.map((x) => x.output)))),
+              el('td', fmtCn(med(ds.map((x) => x.hit)))),
+              el('td', rateMed)
+            );
+            tbody1.append(medRow);
           } else {
             const tr = el('tr');
             tr.append(el('td', rd && rd.message ? '加载失败：' + rd.message : '这个范围还没有记录', 'tb-mono'));
@@ -3804,7 +3896,7 @@ export default {
           }
           tbl1.append(tbody1);
           histCard.append(tbl1);
-          histCard.append(el('div', '点日期可切换查看那一天；命中率 = 缓存命中 ÷ 输入。', 'tb-tblnote'));
+          histCard.append(el('div', '点日期可切换查看那一天；命中率 = 缓存命中 ÷ 输入；日均 = 合计 ÷ 有记录天数，中位数按天取中位。', 'tb-tblnote'));
           tables.append(histCard);
 
           // ---- 模型分布（按所选日期） ----

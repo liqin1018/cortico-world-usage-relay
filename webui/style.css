@@ -2535,3 +2535,38 @@
   line-height: 1.5;
   white-space: nowrap;
 }
+
+/* 日期选择 / 自定义区间 / 日均中位数 */
+.tb-date {
+  width: 150px;
+  box-sizing: border-box;
+}
+
+.tb-date-xs {
+  width: 142px;
+  box-sizing: border-box;
+}
+
+.tb-range-custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 2px 0 10px;
+}
+
+.tb-range-lbl {
+  font-size: 12px;
+  color: #7c8496;
+}
+
+.tb-table tr.avg td {
+  background: #f8faff;
+  color: #3f4658;
+  border-top: 1px solid #eef1f8;
+}
+
+.tb-table tr.med td {
+  background: #fbfbff;
+  color: #4b5468;
+}
