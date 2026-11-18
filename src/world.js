@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const TOOL_DECL = {
   name: 'tokenboard_usage',
   description:
-    '查 Coopanion 自己的 token 用量（读本机 usage.jsonl 汇总，这次调用本身不花 token）：默认回今天+最近 7 天的调用量与总 token、今天的高峰时段、用量最大的几个模型、今天最烧的一轮对话。主人问「今天用了多少 token」「最近用量怎么样」「哪个模型烧得最多」时用。',
+    '查 Coopanion 自己的 token 用量与消费金额（读本机 usage.jsonl 汇总，这次调用本身不花 token）：默认回今天+最近 7 天的调用量、总 token、金额（USD 与按汇率折算的人民币）、高峰/低谷分别花了多少、平均每次花费、今天的高峰时段、用量最大的几个模型、今天最烧的一轮对话。主人问「今天用了多少 token」「今天花了多少钱」「最近用量怎么样」「高峰贵多少」「哪个模型烧得最多」时用。',
   parameters: {
     type: 'object',
     additionalProperties: false,
@@ -37,7 +37,23 @@ const ALERT_DECL = {
   summary: { zh: '设每天 token 用量提醒阈值。', en: 'Set the daily token usage alert threshold.' },
 };
 
-const EMPTY_HOUR = () => ({ calls: 0, input: 0, output: 0, hit: 0 });
+const EMPTY_HOUR = () => ({
+  calls: 0,
+  input: 0,
+  output: 0,
+  hit: 0,
+  // 金额：USD，来自官方 quote（billed）或按价目表估算（est）
+  cost: 0,
+  costPeak: 0,
+  costOff: 0,
+  billedCost: 0,
+  estCost: 0,
+  estCalls: 0,
+  unknownCalls: 0,
+  peakCalls: 0,
+  peakTokens: 0,
+  offTokens: 0,
+});
 const TTL_MS = 10000;
 const ALERT_CHECK_MS = 60 * 1000;
 /** 解析日志时一次读多少字节：分块处理，避免大文件解析时出现几倍的瞬时内存。 */
@@ -97,6 +113,194 @@ function fmtCn(n) {
   return sign + Math.round(n).toLocaleString('en-US');
 }
 
+/* ---------------- 计费：DeepSeek 官方价目 + 高峰 / 低谷 ----------------
+ *
+ * 口径：金额 = 缓存命中输入 × 缓存价 + 未命中输入 × 输入价 + 输出 × 输出价（单价为 USD / 百万 token）。
+ * 记录里带 attempt.charges（Coopanion 写入的官方报价）时直接采用报价金额；没有报价时按价目表算，
+ * 并标记为「估算」。价目表优先从日志里最新的官方 quote 学会（因此官方调价后插件会自己跟上），
+ * 学不到才用内置的 2026-09-22 价目。
+ *
+ * 高峰：quote.timeWindows 里的高价时段（本机日志里是 UTC 周一至周五 01:00–04:00、06:00–10:00，
+ * 即北京时间 09:00–12:00、14:00–18:00，单价 ×2）；其余时间为低谷。
+ */
+
+const PRICE_METERS = ['cachedInput', 'uncachedInput', 'output'];
+const BUILTIN_PRICING = {
+  currency: 'USD',
+  source: 'https://api-docs.deepseek.com/quick_start/pricing (2026-09-22)',
+  capturedAt: '',
+  models: {
+    'deepseek-flash': {
+      base: { cachedInput: 0.003, uncachedInput: 0.15, output: 0.6 },
+      peak: { cachedInput: 0.006, uncachedInput: 0.3, output: 1.2 },
+      windows: [
+        { from: '01:00', to: '04:00', timezone: 'UTC', weekdays: [1, 2, 3, 4, 5] },
+        { from: '06:00', to: '10:00', timezone: 'UTC', weekdays: [1, 2, 3, 4, 5] },
+      ],
+    },
+  },
+};
+
+function clonePricing(src) {
+  return JSON.parse(JSON.stringify(src));
+}
+
+function numOrNull(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** {"cachedInput":0.003,...} ← quote.rules / timeWindow.rules */
+function meterRules(rules) {
+  const out = {};
+  for (const rule of Array.isArray(rules) ? rules : []) {
+    if (!rule || !rule.meter) continue;
+    const n = numOrNull(rule.perMillion);
+    if (n != null) out[String(rule.meter)] = n;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function hhmmMinutes(v) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '').trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (!(h >= 0 && h < 24) || !(mi >= 0 && mi < 60)) return null;
+  return h * 60 + mi;
+}
+
+const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+/** 某一时刻在指定时区里的「星期几 + 当天第几分钟」。时区解析失败时退回 UTC。 */
+function zoneClock(date, timeZone) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+  const utc = { wd: d.getUTCDay(), mins: d.getUTCHours() * 60 + d.getUTCMinutes() };
+  const tz = String(timeZone || 'UTC').trim();
+  if (!tz || /^utc$/i.test(tz)) return utc;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(d);
+    let wd = null;
+    let h = null;
+    let mi = null;
+    for (const p of parts) {
+      if (p.type === 'weekday') wd = WEEKDAY_INDEX[p.value] ?? null;
+      else if (p.type === 'hour') h = Number(p.value);
+      else if (p.type === 'minute') mi = Number(p.value);
+    }
+    if (wd == null || h == null || mi == null) return utc;
+    return { wd, mins: (h % 24) * 60 + mi };
+  } catch {
+    return utc;
+  }
+}
+
+/** 命中返回该时段（含该时段自己的价目 rules），否则 null。 */
+function matchingWindow(date, windows) {
+  const zones = Array.isArray(windows) ? windows : [];
+  if (!zones.length) return null;
+  for (const w of zones) {
+    const clock = zoneClock(date, w && w.timezone);
+    if (!clock) continue;
+    const days = Array.isArray(w.weekdays) && w.weekdays.length ? w.weekdays.map((x) => Number(x)) : null;
+    if (days && !days.includes(clock.wd)) continue;
+    const a = hhmmMinutes(w.from);
+    const b = hhmmMinutes(w.to);
+    if (a == null || b == null || a === b) continue;
+    const inside = a < b ? clock.mins >= a && clock.mins < b : clock.mins >= a || clock.mins < b;
+    if (inside) return w;
+  }
+  return null;
+}
+
+/** 记录里写入的官方报价（只认第一条；汇率/币种随之）。 */
+function officialCharge(record) {
+  const charges = record && record.attempt && record.attempt.charges;
+  if (!Array.isArray(charges) || !charges.length) return null;
+  const first = charges[0];
+  if (!first || typeof first !== 'object') return null;
+  return first;
+}
+
+/** 从官方 quote 学会该模型的价目与高峰时段：官方调价后插件跟着变，不用改代码。 */
+function learnPricing(pricing, record) {
+  const charge = officialCharge(record);
+  const quote = charge && charge.quote;
+  if (!quote || typeof quote !== 'object') return false;
+  const base = meterRules(quote.rules);
+  if (!base) return false;
+  const windows = [];
+  for (const raw of Array.isArray(quote.timeWindows) ? quote.timeWindows : []) {
+    if (!raw || typeof raw !== 'object') continue;
+    const from = String(raw.from || '').trim();
+    const to = String(raw.to || '').trim();
+    if (hhmmMinutes(from) == null || hhmmMinutes(to) == null) continue;
+    if (hhmmMinutes(from) === hhmmMinutes(to)) continue;
+    windows.push({
+      from,
+      to,
+      timezone: String(raw.timezone || 'UTC'),
+      weekdays: Array.isArray(raw.weekdays) ? raw.weekdays.map((x) => Number(x)).filter((x) => x >= 0 && x <= 6) : null,
+      rules: meterRules(raw.rules) || null,
+    });
+  }
+  const model = String(record.model || 'unknown');
+  const peak = windows.length ? windows[0].rules : null;
+  pricing.models[model] = { base, peak, windows };
+  pricing.currency = String(quote.currency || pricing.currency || 'USD');
+  pricing.source = String(quote.source || pricing.source || '');
+  pricing.capturedAt = String(quote.capturedAt || pricing.capturedAt || '');
+  return true;
+}
+
+/** 一条记录的金额与峰谷归属。billed = 有官方报价；estimated = 按价目表估算；unknown = 没价目。 */
+function costOf(record, pricing) {
+  const model = String(record.model || 'unknown');
+  const spec = pricing.models[model] || null;
+  const cachedInput = Number(record.cacheHitTokens) || 0;
+  const promptInput = Number(record.promptTokens) || 0;
+  const uncachedInput = Number.isFinite(Number(record.cacheMissTokens))
+    ? Number(record.cacheMissTokens) || 0
+    : Math.max(0, promptInput - cachedInput);
+  const output = Number(record.completionTokens) || 0;
+  const tokens = cachedInput + uncachedInput + output;
+  const charge = officialCharge(record);
+  const amount = charge ? numOrNull(charge.amount) : null;
+
+  // 有官方报价：金额用官方数，峰谷用报价里实际套用的单价判断（不依赖时段解析）
+  if (amount != null && charge) {
+    let peak = false;
+    const applied = Array.isArray(charge.lines) ? charge.lines : [];
+    if (spec && applied.length) {
+      for (const line of applied) {
+        const basePrice = spec.base[String(line && line.meter)];
+        const used = numOrNull(line && line.perMillion);
+        if (basePrice != null && used != null && used > basePrice) {
+          peak = true;
+          break;
+        }
+      }
+    } else if (spec) {
+      peak = !!matchingWindow(record.ts, spec.windows);
+    }
+    return { usd: amount, peak, billed: true, estimated: false, unknown: false, tokens };
+  }
+
+  if (!spec) return { usd: 0, peak: false, billed: false, estimated: false, unknown: tokens > 0, tokens };
+  const window = matchingWindow(record.ts, spec.windows);
+  const rate = (window && window.rules) || spec.base;
+  const usd =
+    (cachedInput * (rate.cachedInput || 0) + uncachedInput * (rate.uncachedInput || 0) + output * (rate.output || 0)) / 1e6;
+  return { usd, peak: !!window, billed: false, estimated: usd > 0, unknown: false, tokens };
+}
+
 function localDateStr(d) {
   return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
 }
@@ -126,23 +330,64 @@ function newDay() {
     output: 0,
     hit: 0,
     total: 0,
+    cost: 0,
+    costPeak: 0,
+    costOff: 0,
+    billedCost: 0,
+    billedCalls: 0,
+    estCost: 0,
+    estCalls: 0,
+    unknownCalls: 0,
+    unknownTokens: 0,
+    peakCalls: 0,
+    peakTokens: 0,
+    offTokens: 0,
   };
 }
 
-function bump(map, key, inTok, outTok, hit) {
+function bump(map, key, inTok, outTok, hit, bill) {
   let b = map.get(key);
   if (!b) {
-    b = { calls: 0, input: 0, output: 0, hit: 0 };
+    b = {
+      calls: 0,
+      input: 0,
+      output: 0,
+      hit: 0,
+      cost: 0,
+      costPeak: 0,
+      costOff: 0,
+      estCost: 0,
+      estCalls: 0,
+      billedCost: 0,
+      billedCalls: 0,
+      unknownCalls: 0,
+      unknownTokens: 0,
+    };
     map.set(key, b);
   }
   b.calls++;
   b.input += inTok;
   b.output += outTok;
   b.hit += hit;
+  if (bill) {
+    b.cost += bill.usd;
+    if (bill.peak) b.costPeak += bill.usd;
+    else b.costOff += bill.usd;
+    if (bill.billed) {
+      b.billedCost += bill.usd;
+      b.billedCalls++;
+    } else if (bill.estimated) {
+      b.estCost += bill.usd;
+      b.estCalls++;
+    } else if (bill.unknown) {
+      b.unknownCalls++;
+      b.unknownTokens += bill.tokens || 0;
+    }
+  }
   return b;
 }
 
-function mergeRecord(days, r) {
+function mergeRecord(days, r, pricing) {
   const ts = String(r.ts || '');
   if (ts.length < 16) return;
   const date = ts.slice(0, 10);
@@ -154,6 +399,11 @@ function mergeRecord(days, r) {
   const hit = Number(r.cacheHitTokens) || 0;
   const model = String(r.model || 'unknown');
 
+  // 先学价目，再算钱：同一条记录里的官方 quote 就是最权威的价目
+  if (pricing) learnPricing(pricing, r);
+  const bill = pricing ? costOf(r, pricing) : null;
+  const cost = bill ? bill.usd : 0;
+
   let D = days.get(date);
   if (!D) {
     D = newDay();
@@ -163,27 +413,61 @@ function mergeRecord(days, r) {
   D.input += inTok;
   D.output += outTok;
   D.hit += hit;
+  D.cost += cost;
+  if (bill && bill.peak) {
+    D.costPeak += cost;
+    D.peakCalls++;
+    D.peakTokens += inTok + outTok;
+  } else {
+    D.costOff += cost;
+    D.offTokens += inTok + outTok;
+  }
+  if (bill && bill.billed) {
+    D.billedCost += cost;
+    D.billedCalls++;
+  } else if (bill && bill.estimated) {
+    D.estCost += cost;
+    D.estCalls++;
+  } else if (bill && bill.unknown) {
+    D.unknownCalls++;
+    D.unknownTokens += inTok + outTok;
+  }
 
   const H = D.hours[h];
   H.calls++;
   H.input += inTok;
   H.output += outTok;
   H.hit += hit;
+  H.cost += cost;
+  if (bill && bill.peak) {
+    H.costPeak += cost;
+    H.peakCalls++;
+    H.peakTokens += inTok + outTok;
+  } else {
+    H.costOff += cost;
+    H.offTokens += inTok + outTok;
+  }
+  if (bill && bill.billed) H.billedCost += cost;
+  else if (bill && bill.estimated) {
+    H.estCost += cost;
+    H.estCalls++;
+  } else if (bill && bill.unknown) H.unknownCalls++;
 
-  bump(D.mins, h * 60 + mi, inTok, outTok, hit);
-  bump(D.models, model, inTok, outTok, hit);
+  bump(D.mins, h * 60 + mi, inTok, outTok, hit, bill);
+  bump(D.models, model, inTok, outTok, hit, bill);
 
   const run = String(r.run || '');
   if (run) {
     let R = D.runs.get(run);
     if (!R) {
-      R = { run, calls: 0, input: 0, output: 0, hit: 0, first: ts, last: ts, maxRound: 0 };
+      R = { run, calls: 0, input: 0, output: 0, hit: 0, first: ts, last: ts, maxRound: 0, cost: 0 };
       D.runs.set(run, R);
     }
     R.calls++;
     R.input += inTok;
     R.output += outTok;
     R.hit += hit;
+    R.cost += cost;
     if (ts < R.first) R.first = ts;
     if (ts > R.last) R.last = ts;
     const rd = Number(r.round) || 0;
@@ -194,13 +478,14 @@ function mergeRecord(days, r) {
   const sessId = String(r.sessionId || r.label || 'unknown');
   let S = D.sessions.get(sessId);
   if (!S) {
-    S = { session: sessId, label: String(r.label || ''), calls: 0, input: 0, output: 0, hit: 0 };
+    S = { session: sessId, label: String(r.label || ''), calls: 0, input: 0, output: 0, hit: 0, cost: 0 };
     D.sessions.set(sessId, S);
   }
   S.calls++;
   S.input += inTok;
   S.output += outTok;
   S.hit += hit;
+  S.cost += cost;
 }
 
 function finalizeDay(D) {
@@ -228,6 +513,116 @@ export class TokenBoardWorld {
     this._cfgAt = 0;
     this._cfgLive = null;
     this._cache = { at: 0, mtime: 0, size: 0, offset: 0, data: null, err: '' };
+    this._pricing = this.basePricing();
+  }
+
+  /** 内置价目 + 配置里为冷门模型补的价（worlds.tokenboard.pricing.models.<模型>）。 */
+  basePricing() {
+    const pricing = clonePricing(BUILTIN_PRICING);
+    const extra = this.cfg && this.cfg.pricing && typeof this.cfg.pricing === 'object' ? this.cfg.pricing : null;
+    const models = extra && extra.models && typeof extra.models === 'object' ? extra.models : null;
+    if (models) {
+      for (const [model, raw] of Object.entries(models).slice(0, 50)) {
+        const src = raw && typeof raw === 'object' && raw.base && typeof raw.base === 'object' ? raw.base : raw;
+        if (!src || typeof src !== 'object') continue;
+        const base = {};
+        for (const meter of PRICE_METERS) {
+          const n = numOrNull(src[meter]);
+          if (n != null) base[meter] = n;
+        }
+        if (Object.keys(base).length !== PRICE_METERS.length) continue;
+        const peak = {};
+        const peakSrc = raw && raw.peak && typeof raw.peak === 'object' ? raw.peak : null;
+        for (const meter of PRICE_METERS) {
+          const n = peakSrc ? numOrNull(peakSrc[meter]) : null;
+          if (n != null) peak[meter] = n;
+        }
+        pricing.models[String(model)] = {
+          base,
+          peak: Object.keys(peak).length === PRICE_METERS.length ? peak : null,
+          windows: [],
+        };
+      }
+    }
+    return pricing;
+  }
+
+  /** USD → CNY 的折算汇率（配置可改，默认 7.20）。 */
+  cnyRate() {
+    const live = this.usageCfg() || {};
+    const pick = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.min(100, Number(v)) : null);
+    const rate = pick(live.cnyRate) ?? pick(this.cfg && this.cfg.cnyRate) ?? 7.2;
+    return rate;
+  }
+
+  /** 面板主币种：cny（默认，按汇率折算）/ usd（官方报价原币）。 */
+  displayCurrency() {
+    const live = this.usageCfg() || {};
+    const v = String(live.priceCurrency || (this.cfg && this.cfg.priceCurrency) || 'cny').toLowerCase();
+    return v === 'usd' ? 'usd' : 'cny';
+  }
+
+  /** 发给面板的价目摘要（不含明细，只给 UI 画说明用）。 */
+  pricingInfo() {
+    const pricing = this._pricing || this.basePricing();
+    const models = {};
+    for (const [model, spec] of Object.entries(pricing.models)) {
+      models[model] = {
+        base: spec.base,
+        peak: spec.peak || null,
+        windows: (spec.windows || []).map((w) => ({
+          from: w.from,
+          to: w.to,
+          timezone: w.timezone,
+          weekdays: w.weekdays || null,
+        })),
+      };
+    }
+    // 高峰时段换算成本机时间，给页脚/配置页一句人话
+    const off = -new Date().getTimezoneOffset();
+    const toLocal = (hhmm) => {
+      const m = hhmmMinutes(hhmm);
+      if (m == null) return '';
+      const t = (m + off + 1440) % 1440;
+      return pad2(Math.floor(t / 60)) + ':' + pad2(t % 60);
+    };
+    const primary = Object.values(models).find((m) => m.windows && m.windows.length) || null;
+    const peakWindowsText = primary ? primary.windows.map((w) => toLocal(w.from) + '–' + toLocal(w.to)).join('、') : '';
+    const days = primary && primary.windows[0] ? primary.windows[0].weekdays : null;
+    const WEEK_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const peakWeekdaysText = !days || !days.length
+      ? '每天'
+      : days.length === 5 && days.join(',') === '1,2,3,4,5'
+        ? '周一至周五'
+        : days.map((d) => WEEK_CN[d]).join('、');
+    const base = primary ? primary.base : null;
+    const peak = primary ? primary.peak : null;
+    let peakMultiplier = null;
+    if (base && peak && base.uncachedInput > 0 && peak.uncachedInput > 0) {
+      peakMultiplier = Math.round((peak.uncachedInput / base.uncachedInput) * 100) / 100;
+    }
+    return {
+      currency: pricing.currency || 'USD',
+      source: pricing.source || '',
+      capturedAt: pricing.capturedAt || '',
+      models,
+      peakWindowsText,
+      peakWeekdaysText,
+      peakMultiplier,
+    };
+  }
+
+  /** 所选日期里哪些本地小时落在高峰时段（给图表打底色；没有记录的小时也能标出来）。 */
+  peakHoursFor(date, model = 'deepseek-flash') {
+    const pricing = this._pricing || this.basePricing();
+    const spec = pricing.models[model] || Object.values(pricing.models)[0];
+    const out = new Array(24).fill(false);
+    if (!spec || !spec.windows || !spec.windows.length) return out;
+    for (let h = 0; h < 24; h++) {
+      const d = new Date(`${date}T${pad2(h)}:30:00`);
+      out[h] = !!matchingWindow(d, spec.windows);
+    }
+    return out;
   }
 
   async start(host) {
@@ -320,7 +715,10 @@ export class TokenBoardWorld {
     } else {
       days = new Map();
       offset = 0;
+      // 全量重建时价目表也从头学，避免残留已经不存在的口径
+      this._pricing = this.basePricing();
     }
+    const pricing = this._pricing || (this._pricing = this.basePricing());
 
     /* 分块读（4MB/块）：不再一次性把整个文件读进 Buffer 再 split 成几十万个字符串，
        解析大日志时的瞬时内存从「文件的 2~3 倍」降到一块左右；多字节字符跨块交给 StringDecoder。 */
@@ -349,7 +747,7 @@ export class TokenBoardWorld {
             } catch {
               r = null;
             }
-            if (r) mergeRecord(days, r);
+            if (r) mergeRecord(days, r, pricing);
           }
           start = nl + 1;
         }
@@ -392,7 +790,24 @@ export class TokenBoardWorld {
   /* ------------ 面板数据 ------------ */
 
   dayStats(D) {
-    return { date: null, calls: D.calls, input: D.input, output: D.output, hit: D.hit, total: D.total };
+    return {
+      date: null,
+      calls: D.calls,
+      input: D.input,
+      output: D.output,
+      hit: D.hit,
+      total: D.total,
+      cost: D.cost,
+      costPeak: D.costPeak,
+      costOff: D.costOff,
+      billedCost: D.billedCost,
+      billedCalls: D.billedCalls,
+      estCost: D.estCost,
+      estCalls: D.estCalls,
+      unknownCalls: D.unknownCalls,
+      peakCalls: D.peakCalls,
+      peakTokens: D.peakTokens,
+    };
   }
 
   summary(wantDate) {
@@ -403,22 +818,18 @@ export class TokenBoardWorld {
     // 允许查任意一天：日志里没有记录的那天返回全 0，而不是偷偷跳回最新一天
     const want = String(wantDate || '');
     const date = /^\d{4}-\d{2}-\d{2}$/.test(want) ? want : days[0];
-    const emptyDay = () => ({
-      calls: 0,
-      input: 0,
-      output: 0,
-      hit: 0,
-      total: 0,
-      hours: Array.from({ length: 24 }, () => ({ calls: 0, input: 0, output: 0, hit: 0, total: 0 })),
-      models: new Map(),
-    });
-    const D = cache.data.get(date) || emptyDay();
+    let D = cache.data.get(date);
+    if (!D) {
+      D = newDay();
+      finalizeDay(D);
+    }
 
     const n0 = new Date();
     const today = localDateStr(n0);
     const isToday = date === today;
     const nowHour = isToday ? n0.getHours() : 23;
     const nowMin = isToday ? n0.getMinutes() : 59;
+    const elapsed = isToday ? nowHour + 1 : 24;
 
     // 昨日（自然日）同期的柱子
     const pd = new Date(date + 'T00:00:00');
@@ -427,7 +838,23 @@ export class TokenBoardWorld {
     const P = cache.data.get(prevDate) || null;
 
     const models = [...D.models.entries()]
-      .map(([model, b]) => ({ model, calls: b.calls, input: b.input, output: b.output, hit: b.hit, total: b.total }))
+      .map(([model, b]) => ({
+        model,
+        calls: b.calls,
+        input: b.input,
+        output: b.output,
+        hit: b.hit,
+        total: b.total,
+        cost: b.cost,
+        costPeak: b.costPeak,
+        costOff: b.costOff,
+        billedCost: b.billedCost,
+        billedCalls: b.billedCalls,
+        estCost: b.estCost,
+        estCalls: b.estCalls,
+        unknownCalls: b.unknownCalls,
+        unknownTokens: b.unknownTokens,
+      }))
       .sort((a, b) => b.total - a.total);
 
     const daysStats = days.slice(0, 14).map((d) => {
@@ -435,6 +862,80 @@ export class TokenBoardWorld {
       s.date = d;
       return s;
     });
+
+    // 全部历史（只遍历已聚合的按天数据，几十天，开销可忽略）
+    const all = {
+      days: days.length,
+      calls: 0,
+      input: 0,
+      output: 0,
+      hit: 0,
+      total: 0,
+      cost: 0,
+      costPeak: 0,
+      costOff: 0,
+      billedCost: 0,
+      billedCalls: 0,
+      estCost: 0,
+      estCalls: 0,
+      unknownCalls: 0,
+      unknownTokens: 0,
+      peakCalls: 0,
+      peakTokens: 0,
+    };
+    for (const d of cache.data.values()) {
+      all.calls += d.calls;
+      all.input += d.input;
+      all.output += d.output;
+      all.hit += d.hit;
+      all.total += d.total;
+      all.cost += d.cost;
+      all.costPeak += d.costPeak;
+      all.costOff += d.costOff;
+      all.billedCost += d.billedCost;
+      all.billedCalls += d.billedCalls;
+      all.estCost += d.estCost;
+      all.estCalls += d.estCalls;
+      all.unknownCalls += d.unknownCalls;
+      all.unknownTokens += d.unknownTokens;
+      all.peakCalls += d.peakCalls;
+      all.peakTokens += d.peakTokens;
+    }
+    all.avgPerDay = all.days ? all.cost / all.days : 0;
+    all.avgPerCall = all.calls ? all.cost / all.calls : 0;
+    all.perMillion = all.total ? (all.cost / all.total) * 1e6 : 0;
+    all.firstDate = days[days.length - 1];
+    all.lastDate = days[0];
+
+    const pricing = this.pricingInfo();
+    const rate = this.cnyRate();
+    const primaryModel = models[0] ? models[0].model : Object.keys(pricing.models)[0] || '';
+    const cost = {
+      currency: pricing.currency || 'USD',
+      source: pricing.source || '',
+      capturedAt: pricing.capturedAt || '',
+      rate,
+      display: this.displayCurrency(),
+      total: D.cost,
+      peak: D.costPeak,
+      off: D.costOff,
+      billed: D.billedCost,
+      estimated: D.estCost,
+      billedCalls: D.billedCalls,
+      estCalls: D.estCalls,
+      unknownCalls: D.unknownCalls,
+      unknownTokens: D.unknownTokens,
+      peakCalls: D.peakCalls,
+      offCalls: Math.max(0, D.calls - D.peakCalls),
+      peakTokens: D.peakTokens,
+      offTokens: D.offTokens,
+      avgPerCall: D.calls ? D.cost / D.calls : 0,
+      avgPerHour: D.cost / Math.max(1, elapsed),
+      perMillion: D.total ? (D.cost / D.total) * 1e6 : 0,
+      avgTokensPerCall: D.calls ? D.total / D.calls : 0,
+      peakShare: D.cost > 0 ? D.costPeak / D.cost : 0,
+      estimatedShare: D.cost > 0 ? D.estCost / D.cost : 0,
+    };
 
     return {
       ok: true,
@@ -447,12 +948,44 @@ export class TokenBoardWorld {
       nowMin,
       days,
       daysStats,
-      hours: D.hours.map((b, h) => ({ h, calls: b.calls, input: b.input, output: b.output, hit: b.hit, total: b.total })),
-      totals: { calls: D.calls, input: D.input, output: D.output, hit: D.hit, total: D.total },
+      hours: D.hours.map((b, h) => ({
+        h,
+        calls: b.calls,
+        input: b.input,
+        output: b.output,
+        hit: b.hit,
+        total: b.total,
+        cost: b.cost,
+        costPeak: b.costPeak,
+        costOff: b.costOff,
+        billedCost: b.billedCost,
+        estCost: b.estCost,
+        estCalls: b.estCalls,
+        unknownCalls: b.unknownCalls,
+        peakCalls: b.peakCalls,
+        peakTokens: b.peakTokens,
+        offTokens: b.offTokens,
+      })),
+      totals: {
+        calls: D.calls,
+        input: D.input,
+        output: D.output,
+        hit: D.hit,
+        total: D.total,
+        cost: D.cost,
+        costPeak: D.costPeak,
+        costOff: D.costOff,
+      },
+      cost,
+      all,
+      pricing,
+      peakHours: this.peakHoursFor(date, primaryModel),
       prevDate,
       hasPrev: !!P,
-      prev: P ? P.hours.map((b, h) => ({ h, calls: b.calls, input: b.input, output: b.output, hit: b.hit, total: b.total })) : null,
-      prevTotals: P ? { calls: P.calls, total: P.total } : null,
+      prev: P
+        ? P.hours.map((b, h) => ({ h, calls: b.calls, input: b.input, output: b.output, hit: b.hit, total: b.total, cost: b.cost }))
+        : null,
+      prevTotals: P ? { calls: P.calls, total: P.total, cost: P.cost } : null,
       models,
       alertLimit: this.alertLimit(),
     };
@@ -473,11 +1006,23 @@ export class TokenBoardWorld {
     const H = D.hours[hour];
     const mins = Array.from({ length: 60 }, (_, m) => {
       const b = D.mins.get(hour * 60 + m);
-      return { m, calls: b ? b.calls : 0, input: b ? b.input : 0, output: b ? b.output : 0, hit: b ? b.hit : 0, total: b ? b.total : 0 };
+      return {
+        m,
+        calls: b ? b.calls : 0,
+        input: b ? b.input : 0,
+        output: b ? b.output : 0,
+        hit: b ? b.hit : 0,
+        total: b ? b.total : 0,
+        cost: b ? b.cost : 0,
+        costPeak: b ? b.costPeak : 0,
+        costOff: b ? b.costOff : 0,
+      };
     });
     const active = mins.filter((b) => b.calls > 0).length;
     let peak = { m: -1, total: 0 };
     for (const b of mins) if (b.total > peak.total) peak = { m: b.m, total: b.total };
+    let peakCost = { m: -1, cost: 0 };
+    for (const b of mins) if (b.cost > peakCost.cost) peakCost = { m: b.m, cost: b.cost };
 
     const pd = new Date(date + 'T00:00:00');
     pd.setDate(pd.getDate() - 1);
@@ -485,7 +1030,7 @@ export class TokenBoardWorld {
     const P = cache.data.get(prevDate) || null;
     const prev = Array.from({ length: 60 }, (_, m) => {
       const b = P && P.mins.get(hour * 60 + m);
-      return { m, total: b ? b.total : 0 };
+      return { m, total: b ? b.total : 0, cost: b ? b.cost : 0 };
     });
 
     return {
@@ -495,11 +1040,24 @@ export class TokenBoardWorld {
       isToday,
       nowMin: isToday ? n0.getMinutes() : 59,
       mins,
-      hourTotals: { calls: H.calls, input: H.input, output: H.output, hit: H.hit, total: H.total },
+      hourTotals: {
+        calls: H.calls,
+        input: H.input,
+        output: H.output,
+        hit: H.hit,
+        total: H.total,
+        cost: H.cost,
+        costPeak: H.costPeak,
+        costOff: H.costOff,
+        peakCalls: H.peakCalls,
+        estCost: H.estCost,
+      },
       active,
       peak,
+      peakCost,
       prevDate,
       prevTotal: P ? P.hours[hour].total : 0,
+      prevCost: P ? P.hours[hour].cost : 0,
     };
   }
 
@@ -535,7 +1093,7 @@ export class TokenBoardWorld {
     };
   }
 
-  /** 日期范围汇总（含范围内模型分布），给周/月/全部视图用。 */
+  /** 日期范围汇总（含范围内模型分布与金额、日均/均价），给周/月/全部视图用。 */
   range(from, to) {
     const cache = this.readData();
     if (!cache.data) return { ok: false, message: cache.err || '用量日志里还没有记录' };
@@ -544,7 +1102,24 @@ export class TokenBoardWorld {
     const days = [...cache.data.keys()]
       .filter((d) => (!F || d >= F) && (!T || d <= T))
       .sort();
-    const totals = { calls: 0, input: 0, output: 0, hit: 0, total: 0 };
+    const totals = {
+      calls: 0,
+      input: 0,
+      output: 0,
+      hit: 0,
+      total: 0,
+      cost: 0,
+      costPeak: 0,
+      costOff: 0,
+      billedCost: 0,
+      estCost: 0,
+      estCalls: 0,
+      billedCalls: 0,
+      unknownCalls: 0,
+      unknownTokens: 0,
+      peakCalls: 0,
+      peakTokens: 0,
+    };
     const models = new Map();
     const list = days.map((d) => {
       const D = cache.data.get(d);
@@ -553,10 +1128,21 @@ export class TokenBoardWorld {
       totals.output += D.output;
       totals.hit += D.hit;
       totals.total += D.total;
+      totals.cost += D.cost;
+      totals.costPeak += D.costPeak;
+      totals.costOff += D.costOff;
+      totals.billedCost += D.billedCost;
+      totals.estCost += D.estCost;
+      totals.estCalls += D.estCalls;
+      totals.billedCalls += D.billedCalls;
+      totals.unknownCalls += D.unknownCalls;
+      totals.unknownTokens += D.unknownTokens;
+      totals.peakCalls += D.peakCalls;
+      totals.peakTokens += D.peakTokens;
       for (const [m, b] of D.models) {
         let Mb = models.get(m);
         if (!Mb) {
-          Mb = { calls: 0, input: 0, output: 0, hit: 0, total: 0 };
+          Mb = { calls: 0, input: 0, output: 0, hit: 0, total: 0, cost: 0, costPeak: 0, estCost: 0, estCalls: 0, unknownCalls: 0 };
           models.set(m, Mb);
         }
         Mb.calls += b.calls;
@@ -564,14 +1150,50 @@ export class TokenBoardWorld {
         Mb.output += b.output;
         Mb.hit += b.hit;
         Mb.total += b.total;
+        Mb.cost += b.cost;
+        Mb.costPeak += b.costPeak;
+        Mb.estCost += b.estCost;
+        Mb.estCalls += b.estCalls;
+        Mb.unknownCalls += b.unknownCalls;
       }
-      return { date: d, calls: D.calls, input: D.input, output: D.output, hit: D.hit, total: D.total };
+      return {
+        date: d,
+        calls: D.calls,
+        input: D.input,
+        output: D.output,
+        hit: D.hit,
+        total: D.total,
+        cost: D.cost,
+        costPeak: D.costPeak,
+        costOff: D.costOff,
+        billedCost: D.billedCost,
+        estCost: D.estCost,
+        estCalls: D.estCalls,
+        unknownCalls: D.unknownCalls,
+        peakCalls: D.peakCalls,
+      };
     });
     const modelList = [...models.entries()]
       .map(([model, b]) => ({ model, ...b }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 14);
-    return { ok: true, from: F, to: T, days: list, totals, models: modelList };
+    const nDays = days.length || 0;
+    totals.avgPerDay = nDays ? totals.cost / nDays : 0;
+    totals.avgCallsPerDay = nDays ? totals.calls / nDays : 0;
+    totals.avgPerCall = totals.calls ? totals.cost / totals.calls : 0;
+    totals.perMillion = totals.total ? (totals.cost / totals.total) * 1e6 : 0;
+    totals.peakShare = totals.cost > 0 ? totals.costPeak / totals.cost : 0;
+    return {
+      ok: true,
+      from: F,
+      to: T,
+      dayCount: nDays,
+      days: list,
+      totals,
+      models: modelList,
+      rate: this.cnyRate(),
+      currency: (this._pricing && this._pricing.currency) || 'USD',
+    };
   }
 
   /* ------------ 用量预警 ------------ */
@@ -631,8 +1253,18 @@ export class TokenBoardWorld {
     const st = this.loadAlertState();
     if (st.alertDate === today && st.alerted) return;
     this.saveAlertState({ alertDate: today, alerted: true, totalAtAlert: D.total, limit });
+    const rate = this.cnyRate();
+    const money = this.displayCurrency() === 'usd' ? '$' + D.cost.toFixed(4) : '¥' + (D.cost * rate).toFixed(D.cost * rate >= 1 ? 2 : 3);
     const text =
-      '⚡ Token 用量提醒：今天已用 ' + fmtCn(D.total) + ' tokens（' + fmtInt(D.calls) + ' 次调用），超过了你设的 ' + fmtCn(limit) + ' 阈值。';
+      '⚡ Token 用量提醒：今天已用 ' +
+      fmtCn(D.total) +
+      ' tokens（' +
+      fmtInt(D.calls) +
+      ' 次调用，花费 ' +
+      money +
+      '），超过了你设的 ' +
+      fmtCn(limit) +
+      ' 阈值。';
     try {
       void this.host.pushEvent(
         {
@@ -642,7 +1274,7 @@ export class TokenBoardWorld {
           text,
           senderKey: 'tokenboard:alert',
           origin: 'internal',
-          meta: { date: today, total: D.total, limit },
+          meta: { date: today, total: D.total, limit, costUsd: D.cost },
         },
         { trigger: 'debounce' }
       );
@@ -660,17 +1292,53 @@ export class TokenBoardWorld {
     const date = days.includes(String(args.date || '')) ? String(args.date) : days[0];
     const D = cache.data.get(date);
     const peak = D.hours.reduce((a, b, h) => (b.total > a.total ? { h, total: b.total } : a), { h: 0, total: 0 });
-    const models = [...D.models.entries()].map(([model, b]) => ({ model, total: b.total, calls: b.calls })).sort((a, b) => b.total - a.total).slice(0, 5);
+    const models = [...D.models.entries()]
+      .map(([model, b]) => ({ model, total: b.total, calls: b.calls, costUsd: b.cost, estCalls: b.estCalls, unknownCalls: b.unknownCalls }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
     const topRun = [...D.runs.values()].sort((a, b) => b.total - a.total)[0] || null;
+    const rate = this.cnyRate();
     const last7 = days.slice(0, 7).map((d) => {
       const s = cache.data.get(d);
-      return { date: d, calls: s.calls, total: s.total };
+      return { date: d, calls: s.calls, total: s.total, costUsd: round6(s.cost), costCny: round6(s.cost * rate) };
     });
     return {
       ok: true,
-      note: '总量=输入+输出，单位 token；数据来自本机用量日志。',
+      note: '总量=输入+输出，单位 token；金额为 USD（官方报价优先，缺报价的按 DeepSeek 高峰/低谷价目估算），costCny 按汇率折算。',
       date,
-      day: { calls: D.calls, total: D.total, input: D.input, output: D.output, cacheHit: D.hit },
+      day: {
+        calls: D.calls,
+        total: D.total,
+        input: D.input,
+        output: D.output,
+        cacheHit: D.hit,
+        costUsd: round6(D.cost),
+        costCny: round6(D.cost * rate),
+        costPeakUsd: round6(D.costPeak),
+        costOffUsd: round6(D.costOff),
+        avgCostPerCallUsd: D.calls ? round6(D.cost / D.calls) : 0,
+      },
+      cost: {
+        currency: (this._pricing && this._pricing.currency) || 'USD',
+        rate,
+        display: this.displayCurrency(),
+        totalUsd: round6(D.cost),
+        totalCny: round6(D.cost * rate),
+        peakUsd: round6(D.costPeak),
+        offUsd: round6(D.costOff),
+        billedCalls: D.billedCalls,
+        estCalls: D.estCalls,
+        unknownCalls: D.unknownCalls,
+        unknownTokens: D.unknownTokens,
+        peakCalls: D.peakCalls,
+        peakTokens: D.peakTokens,
+        offTokens: D.offTokens,
+        perMillionUsd: D.total ? round6((D.cost / D.total) * 1e6) : 0,
+      },
+      pricing: {
+        source: (this._pricing && this._pricing.source) || '',
+        peakWindow: '官方 quote 的 timeWindows（本机为北京时间周一至周五 09:00–12:00、14:00–18:00，单价 ×2）',
+      },
       peakHour: peak.total > 0 ? { hour: peak.h, total: peak.total } : null,
       topModels: models,
       busiestRun: topRun ? { run: topRun.run, startedAt: topRun.first, calls: topRun.calls, total: topRun.total } : null,
@@ -730,18 +1398,27 @@ export class TokenBoardWorld {
     const s = this.summary();
     const ok = !!s.ok;
     const todayTotal = ok && s.isToday ? s.totals.total : 0;
+    const todayCost = ok && s.isToday ? s.totals.cost : 0;
+    const rate = ok ? s.cost.rate : this.cnyRate();
+    const money = (usd) => {
+      const v = usd * rate;
+      return '¥' + (Math.abs(v) >= 1 ? v.toFixed(2) : v.toFixed(3));
+    };
     return {
       label: 'Token 账房',
       lamps: [
         { label: '用量日志', state: ok ? 'online' : 'offline', hint: ok ? s.source + ' · ' + s.days.length + ' 天记录' : s.message || '没读到' },
       ],
-      badges: [{ label: '今日', value: ok && s.isToday ? todayTotal : '—', tone: ok && todayTotal > 0 ? 'on' : 'off' }],
+      badges: [
+        { label: '今日', value: ok && s.isToday ? todayTotal : '—', tone: ok && todayTotal > 0 ? 'on' : 'off' },
+        { label: '今日消费', value: ok && s.isToday ? money(todayCost) : '—', tone: ok && todayCost > 0 ? 'on' : 'off' },
+      ],
       panels: [
         {
           id: 'board',
           title: 'Token 用量',
           description:
-            '整个 Coopanion 的 token 消耗：每小时曲线（叠昨日同期）、单小时分钟下钻、周/月/全部历史汇总、模型分布；当日超过阈值桌宠会主动提醒（说「token 超过 X 提醒我」可设置）。数据来自本机 usage.jsonl。',
+            '整个 Coopanion 的 token 消耗与花费：每小时曲线（token / 金额，叠昨日同期）、高峰/低谷分别计时计费、单小时分钟下钻、周/月/全部历史汇总（日均 / 平均每次 / 平均每百万 token）、模型分布；当日超过阈值桌宠会主动提醒（说「token 超过 X 提醒我」可设置）。金额按 DeepSeek 官方高峰（×2）/低谷价目计算，有官方报价时直接用报价。数据来自本机 usage.jsonl。',
           getMethods: ['summary', 'minutes', 'range'],
         },
         {
@@ -836,6 +1513,9 @@ export class TokenBoardWorld {
         relayStartScript: this.relayConfig().script,
         relayAutoStart: typeof live.relayAutoStart === 'boolean' ? live.relayAutoStart : !!(this.cfg && this.cfg.relayAutoStart),
         billing: cleanBilling(live.billing || this.cfg.billing || {}),
+        cnyRate: this.cnyRate(),
+        priceCurrency: this.displayCurrency(),
+        pricing: (this.readData(), this.pricingInfo()),
       },
     };
   }
@@ -846,6 +1526,14 @@ export class TokenBoardWorld {
     const out = {};
     if (Object.prototype.hasOwnProperty.call(patch, 'dailyAlertTokens')) {
       out.dailyAlertTokens = Math.max(0, Math.floor(Number(patch.dailyAlertTokens) || 0));
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'cnyRate')) {
+      const rate = Number(patch.cnyRate);
+      if (!Number.isFinite(rate) || rate <= 0 || rate > 100) return { ok: false, error: '汇率要填 0 到 100 之间的数字（例如 7.2）' };
+      out.cnyRate = Math.round(rate * 10000) / 10000;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'priceCurrency')) {
+      out.priceCurrency = String(patch.priceCurrency).toLowerCase() === 'usd' ? 'usd' : 'cny';
     }
     for (const key of ['relayUrl', 'relayPython', 'relayStartScript']) {
       if (Object.prototype.hasOwnProperty.call(patch, key)) {
@@ -1286,6 +1974,9 @@ const TOKENBOARD = {
     relayPython: '',
     relayAutoStart: false,
     billing: {},
+    cnyRate: 7.2,
+    priceCurrency: 'cny',
+    pricing: {},
   }),
   create: (ctx) =>
     new TokenBoardWorld({
@@ -1312,6 +2003,10 @@ const TOKENBOARD = {
 
 function fmtInt(n) {
   return (Number(n) || 0).toLocaleString('en-US');
+}
+
+function round6(n) {
+  return Math.round((Number(n) || 0) * 1e6) / 1e6;
 }
 
 export default TOKENBOARD;

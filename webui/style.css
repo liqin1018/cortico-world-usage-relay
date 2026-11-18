@@ -115,7 +115,7 @@
 
 .tb-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -303,7 +303,8 @@
 
 .tb-tables {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  /* 两张表都加了金额列：单列铺满，避免 9 列表格挤成横向滚动 */
+  grid-template-columns: 1fr;
   gap: 12px;
   align-items: start;
 }
@@ -2569,4 +2570,39 @@
 .tb-table tr.med td {
   background: #fbfbff;
   color: #4b5468;
+}
+/* ---------- 金额 / 高峰（2026-11 新增：DeepSeek 峰谷计费） ---------- */
+
+.dot-peak i {
+  background: rgba(255, 183, 77, 0.55);
+}
+
+.tb-tip .tt-alt {
+  color: #9aa0ae;
+  font-size: 11px;
+  margin-left: 3px;
+}
+
+.tb-rangesum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  padding: 2px 0 10px;
+}
+
+.tb-rangesum-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.tb-rangesum-k {
+  color: var(--tb-sub);
+}
+
+.tb-rangesum-v {
+  color: #1f2430;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }

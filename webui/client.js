@@ -1,9 +1,10 @@
 /**
  * Token 用量看板 · webui 面板
  * 复刻 APIGOTO 账号管理面板的「每小时 token 曲线」页：
- * 五张汇总卡 + 每小时柱状图（昨日同期虚线 / 已发生时段均值线 / 当前小时蓝框 / 未发生小时灰底）
- * + 点柱子下钻这一小时每分钟 + 逐日历史表 + 模型分布表。
- * 数据全部来自 Coopanion 本机用量日志（usage.jsonl），由后端 world.js 聚合，不花 token。
+ * 八张汇总卡（当日 token / 当日消费 / 平均每次 / 当前小时 / 最忙时段 / 缓存命中率 / 较昨日同期 / 累计消费）
+ * + 每小时柱状图（昨日同期虚线 / 已发生时段均值线 / 当前小时蓝框 / 未发生小时灰底 / 高峰时段橙色底纹）
+ * + 点柱子下钻这一小时每分钟 + 逐日历史表（含消费 / 高峰消费）+ 模型分布表（含消费 / 均价）。
+ * 金额按 DeepSeek 官方峰谷价目计算；数据全部来自 Coopanion 本机用量日志（usage.jsonl），由后端 world.js 聚合，不花 token。
  */
 
 const METRICS = {
@@ -11,6 +12,7 @@ const METRICS = {
   input: { key: 'input', name: '输入', hint: '' },
   output: { key: 'output', name: '输出', hint: '' },
   hit: { key: 'hit', name: '缓存命中', hint: '输入中命中前缀缓存的部分' },
+  cost: { key: 'cost', name: '金额', hint: '按 DeepSeek 官方价目算的消费（高峰时段单价 ×2）' },
 };
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -60,6 +62,50 @@ function fmtPct(v, digits = 1) {
   return (v * 100).toFixed(digits) + '%';
 }
 
+/* ---------------- 金额 ---------------- */
+
+/** 后端给的金额一律是 USD；面板默认折成人民币显示（汇率可在配置页改）。 */
+const FALLBACK_RATE = 7.2;
+
+function curSymbol(display) {
+  return display === 'usd' ? '$' : '¥';
+}
+
+/** 已经换算到显示币种的数字 → 带符号的金额文本（自适应小数位）。 */
+function fmtCur(v, display) {
+  const sym = curSymbol(display);
+  const n = Number(v) || 0;
+  const a = Math.abs(n);
+  if (a >= 10000) return sym + Math.round(n).toLocaleString('en-US');
+  if (a >= 1) return sym + n.toFixed(2);
+  if (a >= 0.01) return sym + n.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+  if (a === 0) return sym + '0';
+  return sym + n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function fmtUsd(v) {
+  const n = Number(v) || 0;
+  const a = Math.abs(n);
+  if (a >= 1) return '$' + n.toFixed(3);
+  if (a >= 0.001) return '$' + n.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+  if (a === 0) return '$0';
+  return '$' + n.toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function rateOf(data) {
+  const r = data && data.cost && Number(data.cost.rate);
+  return r > 0 ? r : FALLBACK_RATE;
+}
+
+function displayOf(data) {
+  return data && data.cost && data.cost.display === 'usd' ? 'usd' : 'cny';
+}
+
+/** 每小时/每分钟金额（USD）→ 当前显示币种数值，给图表用。 */
+function toCur(usd, rate, display) {
+  return display === 'usd' ? Number(usd) || 0 : (Number(usd) || 0) * rate;
+}
+
 function niceMax(v) {
   if (!(v > 0)) return 100;
   const target = v * 1.06;
@@ -83,6 +129,7 @@ function metricName(key) {
  * opts:  {mean, meanLabel, nowText, onPick(i), yMaxHint}
  */
 function renderChart(items, prev, opts = {}) {
+  const fmt = typeof opts.fmt === 'function' ? opts.fmt : fmtCn;
   const W = 760;
   const H = 300;
   const L = 52;
@@ -108,6 +155,23 @@ function renderChart(items, prev, opts = {}) {
     if (it.future) svg.append(sv('rect', { x: L + slotW * i, y: T - 8, width: slotW, height: plotH + 8, fill: '#ededf2' }));
   });
 
+  // 高峰时段底色：官方高价时段（本机为北京时间周一至周五 09–12、14–18），柱子压在上面
+  if (Array.isArray(opts.peakHours)) {
+    items.forEach((it, i) => {
+      if (!opts.peakHours[i]) return;
+      svg.append(
+        sv('rect', {
+          x: L + slotW * i,
+          y: T - 8,
+          width: slotW,
+          height: plotH + 8,
+          fill: '#ffb74d',
+          'fill-opacity': 0.16,
+        })
+      );
+    });
+  }
+
   // 网格 + 轴标签
   for (let g = 0; g <= 4; g++) {
     const gv = (yMax / 4) * g;
@@ -115,7 +179,7 @@ function renderChart(items, prev, opts = {}) {
     svg.append(sv('line', { x1: L, y1: gy, x2: W - R, y2: gy, stroke: '#e7e9f0', 'stroke-width': 1 }));
     if (g > 0) {
       const t = sv('text', { x: L - 7, y: gy + 3.5, 'text-anchor': 'end', class: 'tb-axis' });
-      t.textContent = fmtCn(gv);
+      t.textContent = fmt(gv);
       svg.append(t);
     }
   }
@@ -174,7 +238,7 @@ function renderChart(items, prev, opts = {}) {
     });
     if (peakI >= 0 && peakV > 0) {
       const t = sv('text', { x: cx(peakI), y: y(peakV) - 6, 'text-anchor': 'middle', class: 'tb-peak' });
-      t.textContent = fmtCn(peakV);
+      t.textContent = fmt(peakV);
       svg.append(t);
     }
   }
@@ -250,12 +314,13 @@ function hideTip() {
   if (tipEl) tipEl.style.display = 'none';
 }
 
-function deltaHtml(d) {
+function deltaHtml(d, fmt) {
+  const f = typeof fmt === 'function' ? fmt : fmtCn;
   if (d == null || isNaN(d)) return '<b class="tt-v">—</b>';
   if (d === 0) return '<b class="tt-v">0</b>';
   const cls = d > 0 ? 'up' : 'down';
   const sign = d > 0 ? '+' : '-';
-  return '<b class="tt-v ' + cls + '">' + sign + fmtCn(Math.abs(d)) + '</b>';
+  return '<b class="tt-v ' + cls + '">' + sign + f(Math.abs(d)) + '</b>';
 }
 
 function pctDeltaHtml(cur, prev) {
@@ -277,38 +342,66 @@ function showTip(ev, it, opts, i, items) {
   const base = String(it.label || '');
   const title = t.kind === 'minute' ? base : base.slice(0, 3) + '00–' + base.slice(0, 3) + '59';
 
+  const m = (opts && opts.metricKey) || 'total';
+  const money = (opts && opts.money) || null;
+  const isCost = m === 'cost' && !!money;
+  const valueOf = (b) => (isCost ? Number(b.cost) || 0 : b[m] || b.total || 0);
+  const textOf = (v) => (isCost ? money.main(v) : fmtCn(v));
+  const deltaOf = (d) => deltaHtml(d, isCost ? money.main : null);
+
   const rows = [];
   rows.push('<div class="tt-title">' + title + '</div>');
   rows.push(row('总量', '<b class="tt-v">' + fmtInt(it.total || 0) + '</b>'));
   rows.push(row('输入 / 输出', '<b class="tt-v">' + fmtCn(it.input || 0) + ' / ' + fmtCn(it.output || 0) + '</b>'));
   rows.push(row('缓存命中', '<b class="tt-v">' + fmtCn(it.hit || 0) + '</b>'));
+
+  if (money && it.cost != null) {
+    const pk = Number(it.costPeak) || 0;
+    const off = Number(it.costOff) || 0;
+    rows.push(sep);
+    rows.push(
+      row('消费', '<b class="tt-v">' + money.main(it.cost) + '</b> <span class="tt-alt">' + money.alt(it.cost) + '</span>')
+    );
+    if (pk > 0 || off > 0) {
+      rows.push(row('高峰 / 低谷', '<b class="tt-v">' + money.main(pk) + '</b> / ' + money.main(off)));
+    }
+    if ((it.calls || 0) > 0) {
+      rows.push(row('平均每次', '<b class="tt-v">' + money.main(it.cost / it.calls) + '</b>'));
+    }
+  }
+
   rows.push(sep);
   rows.push(row('调用次数', '<b class="tt-v">' + fmtInt(it.calls || 0) + ' 次</b>'));
 
   if (t.kind === 'minute') {
     const share = t.hourTotal > 0 && it.total ? (it.total / t.hourTotal) * 100 : null;
     rows.push(row('占本小时', share != null ? '<b class="tt-v">' + share.toFixed(1) + '%</b>' : '<b class="tt-v">—</b>'));
+    if (money && t.hourCost > 0 && it.cost) {
+      rows.push(row('占本小时金额', '<b class="tt-v">' + ((it.cost / t.hourCost) * 100).toFixed(1) + '%</b>'));
+    }
   } else {
     const per = (it.calls || 0) > 0 ? fmtCn((it.total || 0) / it.calls) : null;
-    rows.push(row('平均每次', per != null ? '<b class="tt-v">' + per + '</b>' : '<b class="tt-v">—</b>'));
+    rows.push(row('平均每次 token', per != null ? '<b class="tt-v">' + per + '</b>' : '<b class="tt-v">—</b>'));
     const share = t.dayTotal > 0 && it.total ? ((it.total / t.dayTotal) * 100).toFixed(1) + '%' : null;
-    rows.push(row('占全天', share ? '<b class="tt-v">' + share + '</b>' : '<b class="tt-v">—</b>'));
+    rows.push(row('占全天 token', share ? '<b class="tt-v">' + share + '</b>' : '<b class="tt-v">—</b>'));
+    if (money && t.dayCost > 0 && it.cost) {
+      rows.push(row('占全天金额', '<b class="tt-v">' + ((it.cost / t.dayCost) * 100).toFixed(1) + '%</b>'));
+    }
   }
 
-  const m = (opts && opts.metricKey) || 'total';
   // 较上一时段
   let prevSlot = null;
   if (items && i > 0) prevSlot = items[i - 1];
-  const prevVal = prevSlot ? prevSlot[m] || prevSlot.total || 0 : null;
-  rows.push(row(t.kind === 'minute' ? '较上一分钟' : '较上一小时', deltaHtml(prevVal == null ? null : (it[m] || it.total || 0) - prevVal)));
+  const prevVal = prevSlot ? valueOf(prevSlot) : null;
+  rows.push(row(t.kind === 'minute' ? '较上一分钟' : '较上一小时', deltaOf(prevVal == null ? null : valueOf(it) - prevVal)));
 
   // 昨日同期
   let yd = '—';
   let ydPct = '';
   if (t.prev && t.prev[i]) {
-    const pv = t.prev[i][m] || t.prev[i].total || 0;
-    yd = fmtCn(pv);
-    ydPct = pctDeltaHtml(it[m] || it.total || 0, pv);
+    const pv = isCost ? Number(t.prev[i].cost) || 0 : t.prev[i][m] || t.prev[i].total || 0;
+    yd = textOf(pv);
+    ydPct = pctDeltaHtml(valueOf(it), pv);
   }
   rows.push(row('昨日同期', '<b class="tt-v">' + yd + ydPct + '</b>'));
 
@@ -3349,6 +3442,77 @@ function mountConfig(ctx) {
     ab.append(el('div', '也可以直接跟桌宠说「token 超过五千万提醒我」。', 'tb-rh-note'));
     body.append(alert);
 
+    /* 计费：汇率 / 主币种 / 只读价目 */
+    const { sec: moneySec, body: mb } = rhSection('计费', 'DeepSeek 官方价目按高峰 / 低谷计费，面板金额默认折成人民币；换汇率只影响显示');
+    const moneyRow = el('div', undefined, 'tb-rh-form');
+    const rateField = el('label', undefined, 'tb-rh-field inline');
+    rateField.append(el('span', 'USD → CNY 汇率', 'tb-rh-field-label'));
+    const rateIn = el('input', undefined, 'tb-rh-input');
+    rateIn.type = 'number';
+    rateIn.min = '0.01';
+    rateIn.max = '100';
+    rateIn.step = '0.01';
+    rateIn.value = String(cfg.cnyRate == null ? 7.2 : cfg.cnyRate);
+    rateIn.style.width = '110px';
+    rateField.append(rateIn);
+    moneyRow.append(rateField);
+    const curField = el('label', undefined, 'tb-rh-field inline');
+    curField.append(el('span', '主币种', 'tb-rh-field-label'));
+    const curSel = el('select', undefined, 'tb-select');
+    for (const [val, text] of [
+      ['cny', '人民币 ¥（按汇率折算）'],
+      ['usd', '美元 $（官方报价原币）'],
+    ]) {
+      const opt = el('option', text);
+      opt.value = val;
+      if ((cfg.priceCurrency || 'cny') === val) opt.selected = true;
+      curSel.append(opt);
+    }
+    curField.append(curSel);
+    moneyRow.append(curField);
+    const saveMoney = rhBtn('保存计费设置', 'tb-primary', () =>
+      save({ cnyRate: Number(rateIn.value), priceCurrency: curSel.value }, saveMoney)
+    );
+    moneyRow.append(saveMoney);
+    mb.append(moneyRow);
+    const pr = (cfg && cfg.pricing) || {};
+    const prModels = pr.models || {};
+    const prSpec = prModels['deepseek-flash'] || Object.values(prModels).find((m) => m && m.base) || null;
+    const prBase = prSpec && prSpec.base ? prSpec.base : null;
+    const prPeak = prSpec && prSpec.peak ? prSpec.peak : null;
+    const priceText = prBase
+      ? '低谷：$' +
+        prBase.cachedInput +
+        ' 缓存 / $' +
+        prBase.uncachedInput +
+        ' 未命中 / $' +
+        prBase.output +
+        ' 输出（每百万 token）' +
+        (prPeak
+          ? '；高峰 ×' +
+            (prBase.uncachedInput > 0 ? Math.round((prPeak.uncachedInput / prBase.uncachedInput) * 100) / 100 : 2) +
+            '：$' +
+            prPeak.cachedInput +
+            ' / $' +
+            prPeak.uncachedInput +
+            ' / $' +
+            prPeak.output
+          : '')
+      : '价目表：读取中…（日志里有官方报价时会自动学会）';
+    mb.append(el('div', priceText, 'tb-rh-note'));
+    if (pr.peakWindowsText) {
+      mb.append(el('div', '高峰时段：' + (pr.peakWeekdaysText || '每天') + ' ' + pr.peakWindowsText + '（本机时间）', 'tb-rh-note'));
+    }
+    if (pr.source) mb.append(el('div', '价目来源：' + pr.source, 'tb-rh-note'));
+    mb.append(
+      el(
+        'div',
+        '价格从日志里的官方报价自动学到；日志没带报价的记录按同一张价目表估算。别的模型没价目时，可在 config.json 的 worlds.tokenboard.pricing.models 里补 base / peak。',
+        'tb-rh-note'
+      )
+    );
+    body.append(moneySec);
+
     if (state.loading && !state.st) body.prepend(rhEmpty('正在读取服务状态…'));
   }
 
@@ -3449,17 +3613,65 @@ export default {
         const tables = el('div', undefined, 'tb-tables');
         root.append(tables);
 
-        const foot = el(
-          'div',
-          '数据来自 Coopanion 本机用量日志（usage.jsonl）·总量 = 输入 + 输出，「缓存命中」为输入中命中前缀缓存的部分（单独计费折扣）·按本地区整点归档，灰色区域为尚未发生的小时。',
-          'tb-foot'
-        );
+        const foot = el('div', '', 'tb-foot');
         root.append(foot);
+
+        /* ---------- 金额显示（后端一律给 USD，面板按配置折成人民币） ---------- */
+        const rate = () => rateOf(state.data);
+        const display = () => displayOf(state.data);
+        const toCur = (usd) => (display() === 'usd' ? Number(usd) || 0 : (Number(usd) || 0) * rate());
+        const money = (usd) => fmtCur(toCur(usd), display());
+        const moneyAlt = (usd) => (display() === 'usd' ? fmtCur((Number(usd) || 0) * rate(), 'cny') : fmtUsd(usd));
+        const moneyInfo = () => ({ main: money, alt: moneyAlt, display: display(), rate: rate() });
+
+        function metricOf(b) {
+          if (!b) return 0;
+          if (state.metric === 'cost') return toCur(b.cost || 0);
+          return b[state.metric] || 0;
+        }
+
+        function fmtMetric(v) {
+          return state.metric === 'cost' ? fmtCur(v, display()) : fmtCn(v);
+        }
 
         /* ---------- 渲染 ---------- */
 
-        function metricOf(b) {
-          return b ? b[state.metric] || 0 : 0;
+        function updateFoot(d) {
+          if (!d || !d.ok) {
+            foot.textContent = '数据来自 Coopanion 本机用量日志（usage.jsonl）· 总量 = 输入 + 输出 · 按本地区整点归档。';
+            return;
+          }
+          const c = d.cost || {};
+          const p = d.pricing || {};
+          const models = p.models || {};
+          const spec = models['deepseek-flash'] || Object.values(models).find((m) => m && m.base) || null;
+          const base = spec && spec.base ? spec.base : null;
+          const parts = [];
+          parts.push('数据来自本机 ' + (d.source || 'usage.jsonl') + '（总量 = 输入 + 输出）');
+          if (base) {
+            parts.push(
+              'DeepSeek 价目 ' +
+                (p.source ? '（' + p.source.replace(/^https?:\/\//, '') + '）' : '') +
+                '：低谷 $' +
+                base.cachedInput +
+                ' 缓存 / $' +
+                base.uncachedInput +
+                ' 未命中 / $' +
+                base.output +
+                ' 输出每百万 token'
+            );
+          }
+          if (p.peakWindowsText) {
+            parts.push(
+              '高峰' + (p.peakMultiplier ? ' ×' + p.peakMultiplier : '') + '：' + p.peakWeekdaysText + ' ' + p.peakWindowsText
+            );
+          }
+          parts.push('$1 = ¥' + Number(c.rate || 7.2).toFixed(2));
+          const billed = c.billedCalls || 0;
+          const est = c.estCalls || 0;
+          const unknown = c.unknownCalls || 0;
+          parts.push('金额：' + billed + ' 次有官方报价' + (est ? '，' + est + ' 次按价目表估算' : '') + (unknown ? '，' + unknown + ' 次模型未计价' : ''));
+          foot.textContent = parts.join(' · ') + '。';
         }
 
         function renderHead() {
@@ -3468,6 +3680,7 @@ export default {
             source.textContent = '';
             dateSel.value = '';
             dateSel.disabled = true;
+            updateFoot(d);
             return;
           }
           dateSel.disabled = false;
@@ -3478,6 +3691,16 @@ export default {
           dateSel.value = d.date;
           source.textContent =
             d.date + ' · ' + (d.source || 'usage.jsonl') + (d.alertLimit > 0 ? ' · 提醒阈值 ' + fmtCn(d.alertLimit) : '');
+          updateFoot(d);
+        }
+
+        function mkCard(label, big, sub, bigCls, title) {
+          const node = el('div', undefined, 'tb-card');
+          node.append(el('div', label, 'tb-card-label'));
+          node.append(el('div', big, 'tb-card-big' + (bigCls ? ' ' + bigCls : '')));
+          if (sub) node.append(el('div', sub, 'tb-card-sub'));
+          if (title) node.title = title;
+          return node;
         }
 
         function renderCards() {
@@ -3491,74 +3714,129 @@ export default {
             return;
           }
           const t = d.totals;
+          const cost = d.cost || {};
+          const all = d.all || { cost: 0, days: 0 };
           const elapsed = d.isToday ? d.nowHour + 1 : 24;
           const avgPerHour = t.total / Math.max(1, elapsed);
 
           // 卡1 当日总 token
-          const c1 = el('div', undefined, 'tb-card');
-          c1.append(el('div', '当日总 token', 'tb-card-label'));
-          c1.append(el('div', fmtCn(t.total), 'tb-card-big'));
-          c1.append(el('div', '平均 ' + fmtCn(avgPerHour) + '/时 · 已过 ' + elapsed + ' 小时', 'tb-card-sub'));
+          const c1 = mkCard(
+            '当日总 token',
+            fmtCn(t.total),
+            '平均 ' + fmtCn(avgPerHour) + '/时 · ' + money((cost.total || 0) / Math.max(1, elapsed)) + '/时 · 已过 ' + elapsed + ' 小时'
+          );
 
-          // 卡2 当前小时进行中
-          const c2 = el('div', undefined, 'tb-card');
+          // 卡2 当日消费
+          const c2 = mkCard(
+            '当日消费',
+            money(cost.total || 0),
+            moneyAlt(cost.total || 0) + ' · 高峰 ' + money(cost.peak || 0) + ' / 低谷 ' + money(cost.off || 0),
+            '',
+            '官方报价 ' +
+              fmtInt(cost.billedCalls || 0) +
+              ' 次' +
+              (cost.estCalls ? ' · 估算 ' + fmtInt(cost.estCalls) + ' 次（' + money(cost.estimated || 0) + '）' : '') +
+              (cost.unknownCalls ? ' · 未计价 ' + fmtInt(cost.unknownCalls) + ' 次' : '')
+          );
+
+          // 卡3 平均每次
+          const c3 = mkCard(
+            '平均每次',
+            money(cost.avgPerCall || 0),
+            '平均 ' + fmtCn(cost.avgTokensPerCall || 0) + ' token/次 · 均价 ' + money(cost.perMillion || 0) + '/百万'
+          );
+
+          // 卡4 当前小时进行中
           const ch = d.isToday ? d.hours[d.nowHour] : null;
+          let c4;
           if (ch) {
             const folded = (ch.total / Math.max(1, d.nowMin + 1)) * 60;
-            c2.append(el('div', pad2(d.nowHour) + ':00 进行中', 'tb-card-label'));
-            c2.append(el('div', fmtCn(ch.total), 'tb-card-big'));
-            c2.append(el('div', '已过 ' + (d.nowMin + 1) + ' 分 · 折合 ' + fmtCn(folded) + '/时', 'tb-card-sub'));
+            c4 = mkCard(
+              pad2(d.nowHour) + ':00 进行中',
+              fmtCn(ch.total),
+              '已过 ' +
+                (d.nowMin + 1) +
+                ' 分 · 折合 ' +
+                fmtCn(folded) +
+                '/时 · 已花 ' +
+                money(ch.cost || 0) +
+                (ch.peakCalls > 0 ? '（高峰）' : '')
+            );
           } else {
-            c2.append(el('div', '这一天', 'tb-card-label'));
-            c2.append(el('div', fmtCn(t.total), 'tb-card-big'));
-            c2.append(el('div', '已结束 · 共 ' + fmtInt(t.calls) + ' 次调用', 'tb-card-sub'));
+            c4 = mkCard('这一天', fmtCn(t.total), '已结束 · 共 ' + fmtInt(t.calls) + ' 次调用');
           }
 
-          // 卡3 峰值时段
-          const c3 = el('div', undefined, 'tb-card');
+          // 卡5 用量峰值时段（token 最高的小时，附金额）
           let peak = { h: -1, v: 0 };
           d.hours.forEach((b, h) => {
             if (b.total > peak.v) peak = { h, v: b.total };
           });
+          let c5;
           if (peak.h >= 0 && peak.v > 0) {
-            c3.append(el('div', '峰值时段', 'tb-card-label'));
-            c3.append(el('div', pad2(peak.h) + ':00', 'tb-card-big'));
-            c3.append(el('div', fmtCn(peak.v) + ' · 占全天 ' + fmtPct(peak.v / Math.max(1, t.total)) + (t.total ? '' : ''), 'tb-card-sub'));
+            c5 = mkCard(
+              '最忙时段',
+              pad2(peak.h) + ':00',
+              fmtCn(peak.v) +
+                ' · 占全天 ' +
+                fmtPct(peak.v / Math.max(1, t.total)) +
+                ' · 花 ' +
+                money(d.hours[peak.h].cost || 0)
+            );
           } else {
-            c3.append(el('div', '峰值时段', 'tb-card-label'));
-            c3.append(el('div', '—', 'tb-card-big'));
-            c3.append(el('div', '这一时段还没有调用', 'tb-card-sub'));
+            c5 = mkCard('最忙时段', '—', '这一时段还没有调用');
           }
 
-          // 卡4 缓存命中率
-          const c4 = el('div', undefined, 'tb-card');
+          // 卡6 缓存命中率
           const hitRate = t.input > 0 ? t.hit / t.input : 0;
-          c4.append(el('div', '缓存命中率', 'tb-card-label'));
-          c4.append(el('div', t.input > 0 ? fmtPct(hitRate) : '—', 'tb-card-big'));
-          c4.append(
-            el(
-              'div',
-              '命中 ' + fmtCn(t.hit) + ' / 输入 ' + fmtCn(t.input) + (t.input > 0 ? ' · 未命中 ' + fmtCn(t.input - t.hit) : ''),
-              'tb-card-sub'
-            )
+          const c6 = mkCard(
+            '缓存命中率',
+            t.input > 0 ? fmtPct(hitRate) : '—',
+            '命中 ' + fmtCn(t.hit) + ' / 输入 ' + fmtCn(t.input) + (t.input > 0 ? ' · 未命中 ' + fmtCn(t.input - t.hit) : '')
           );
 
-          // 卡5 较昨日同期
-          const c5 = el('div', undefined, 'tb-card');
-          c5.append(el('div', '较昨日同期', 'tb-card-label'));
+          // 卡7 较昨日同期（token + 金额）
+          let c7;
           if (d.hasPrev && d.prevTotals) {
             const elapsedPrev = d.isToday
               ? d.prev.reduce((a, b, h) => (h <= d.nowHour ? a + (b.total || 0) : a), 0)
               : d.prevTotals.total;
+            const costPrev = d.isToday
+              ? d.prev.reduce((a, b, h) => (h <= d.nowHour ? a + (b.cost || 0) : a), 0)
+              : (d.prevTotals.cost || 0);
             const diff = elapsedPrev - t.total;
             const pct = elapsedPrev > 0 ? diff / elapsedPrev : 0;
-            c5.append(el('div', (diff >= 0 ? '-' : '+') + fmtPct(Math.abs(pct), 0), 'tb-card-big' + (diff >= 0 ? ' good' : ' warn')));
-            c5.append(el('div', '今日 ' + fmtCn(t.total) + ' / 昨日 ' + fmtCn(elapsedPrev), 'tb-card-sub'));
+            c7 = mkCard(
+              '较昨日同期',
+              (diff >= 0 ? '-' : '+') + fmtPct(Math.abs(pct), 0),
+              '今日 ' +
+                fmtCn(t.total) +
+                ' / 昨日 ' +
+                fmtCn(elapsedPrev) +
+                ' · ' +
+                money(cost.total || 0) +
+                ' / ' +
+                money(costPrev),
+              diff >= 0 ? 'good' : 'warn'
+            );
           } else {
-            c5.append(el('div', '—', 'tb-card-big'));
-            c5.append(el('div', '昨天没有同期记录', 'tb-card-sub'));
+            c7 = mkCard('较昨日同期', '—', '昨天没有同期记录');
           }
-          cards.append(c1, c2, c3, c4, c5);
+
+          // 卡8 累计
+          const span = all.firstDate ? '自 ' + all.firstDate + ' · ' + all.days + ' 天' : '全部历史';
+          const c8 = mkCard(
+            '累计消费',
+            money(all.cost || 0),
+            span + ' · 日均 ' + money(all.avgPerDay || 0) + ' · ' + fmtCn(all.total || 0) + ' token',
+            '',
+            '官方报价 ' +
+              fmtInt(all.billedCalls || 0) +
+              ' 次' +
+              (all.estCalls ? ' · 估算 ' + fmtInt(all.estCalls) + ' 次（' + money(all.estCost || 0) + '）' : '') +
+              (all.unknownCalls ? ' · 未计价 ' + fmtInt(all.unknownCalls) + ' 次 / ' + fmtCn(all.unknownTokens || 0) + ' token' : '')
+          );
+
+          cards.append(c1, c2, c3, c4, c5, c6, c7, c8);
         }
 
         function hourItems() {
@@ -3566,6 +3844,10 @@ export default {
           return d.hours.map((b, h) => ({
             label: pad2(h) + ':00',
             value: metricOf(b),
+            cost: b.cost || 0,
+            costPeak: b.costPeak || 0,
+            costOff: b.costOff || 0,
+            peakCalls: b.peakCalls || 0,
             calls: b.calls,
             input: b.input,
             output: b.output,
@@ -3573,6 +3855,16 @@ export default {
             total: b.total || 0,
             future: d.isToday && h > d.nowHour,
             current: d.isToday && h === d.nowHour,
+          }));
+        }
+
+        /** 昨日同期柱子：按当前指标取 value（金额指标要换汇率）。 */
+        function prevItems(arr) {
+          if (!arr) return null;
+          return arr.map((b) => ({
+            value: state.metric === 'cost' ? toCur(b.cost || 0) : b[state.metric] || b.total || 0,
+            cost: b.cost || 0,
+            total: b.total || 0,
           }));
         }
 
@@ -3585,17 +3877,31 @@ export default {
             return;
           }
 
+          const elapsed = Math.max(1, d.isToday ? d.nowHour + 1 : 24);
           // 每小时图常驻
           const items = hourItems();
-          const svg = renderChart(items, d.hasPrev ? d.prev : null, {
+          const svg = renderChart(items, d.hasPrev ? prevItems(d.prev) : null, {
             metricKey: state.metric,
             mode: state.mode,
             picked: state.drill,
-            mean: d.totals.total / Math.max(1, d.isToday ? d.nowHour + 1 : 24),
-            meanLabel: '平均 ' + fmtCn(d.totals.total / Math.max(1, d.isToday ? d.nowHour + 1 : 24)) + '/时',
+            fmt: fmtMetric,
+            peakHours: d.peakHours,
+            money: moneyInfo(),
+            mean: state.metric === 'cost' ? toCur(d.totals.cost || 0) / elapsed : d.totals.total / elapsed,
+            meanLabel:
+              '平均 ' +
+              (state.metric === 'cost'
+                ? money((d.totals.cost || 0) / elapsed)
+                : fmtCn(d.totals.total / elapsed)) +
+              '/时',
             nowText: d.isToday ? '现在 ' + pad2(d.nowHour) + ':' + pad2(d.nowMin) : '',
             onPick: (h) => openDrill(h),
-            tip: { kind: 'hour', dayTotal: d.totals.total, prev: d.hasPrev ? d.prev : null },
+            tip: {
+              kind: 'hour',
+              dayTotal: d.totals.total,
+              dayCost: d.totals.cost || 0,
+              prev: d.hasPrev ? d.prev : null,
+            },
           });
           chartWrap.append(svg);
 
@@ -3609,6 +3915,7 @@ export default {
             dot('dot-blue', metricName(state.metric) + '（每小时）'),
             dot('dot-dash', '昨日同期 ' + d.prevDate),
             dot('dot-orange', '已发生时段均值'),
+            dot('dot-peak', '高峰时段（官方价 ×2）'),
             el('span', '蓝框 = 进行中的小时 · 灰底 = 尚未发生 · 点柱子在下方展开这一小时的每分钟', 'tb-lg-plain')
           );
           chartWrap.append(legend);
@@ -3642,7 +3949,9 @@ export default {
                 fmtCn(m.hourTotals.total) +
                 ' · ' +
                 fmtInt(m.hourTotals.calls) +
-                ' 次调用 · 活跃 ' +
+                ' 次调用 · ' +
+                money(m.hourTotals.cost || 0) +
+                ' · 活跃 ' +
                 m.active +
                 '/60 分钟' +
                 (m.peak && m.peak.total > 0 ? ' · 峰值 ' + m.peak.m + ' 分 ' + fmtCn(m.peak.total) : '') +
@@ -3662,7 +3971,10 @@ export default {
           const items = m.mins.map((b) => ({
             label: pad2(m.hour) + ':' + pad2(b.m),
             shortLabel: ':' + pad2(b.m),
-            value: b[state.metric] || 0,
+            value: state.metric === 'cost' ? toCur(b.cost || 0) : b[state.metric] || 0,
+            cost: b.cost || 0,
+            costPeak: b.costPeak || 0,
+            costOff: b.costOff || 0,
             calls: b.calls,
             input: b.input,
             output: b.output,
@@ -3671,12 +3983,24 @@ export default {
             future: m.isToday && (m.hour > state.data.nowHour || (isCurrent && b.m > m.nowMin)),
             current: false,
           }));
-          const svg = renderChart(items, m.prev && m.prevTotal > 0 ? m.prev : null, {
+          const svg = renderChart(items, m.prev && m.prevTotal > 0 ? prevItems(m.prev) : null, {
             metricKey: state.metric,
             mode: state.mode === 'line' ? 'line' : 'bar',
-            mean: m.hourTotals.total / elapsedMin,
-            meanLabel: '平均 ' + fmtCn(m.hourTotals.total / elapsedMin) + '/分',
-            tip: { kind: 'minute', hourTotal: m.hourTotals.total, prev: m.prev && m.prevTotal > 0 ? m.prev : null },
+            fmt: fmtMetric,
+            money: moneyInfo(),
+            mean: state.metric === 'cost' ? toCur(m.hourTotals.cost || 0) / elapsedMin : m.hourTotals.total / elapsedMin,
+            meanLabel:
+              '平均 ' +
+              (state.metric === 'cost'
+                ? money((m.hourTotals.cost || 0) / elapsedMin)
+                : fmtCn(m.hourTotals.total / elapsedMin)) +
+              '/分',
+            tip: {
+              kind: 'minute',
+              hourTotal: m.hourTotals.total,
+              hourCost: m.hourTotals.cost || 0,
+              prev: m.prev && m.prevTotal > 0 ? m.prev : null,
+            },
           });
           drillWrap.append(svg);
           drillWrap.append(el('div', '再点一次同一根柱子、点「× 收起」或按 Esc 收起这一段', 'tb-hint'));
@@ -3805,10 +4129,42 @@ export default {
           histHead.append(rangeSel);
           histCard.append(histHead);
           if (state.range === 'custom') histCard.append(renderCustomRange());
+
+          const costTd = (usd, title) => {
+            const td = el('td', money(usd || 0));
+            td.title = (title ? title + ' · ' : '') + moneyAlt(usd || 0) + ' / $' + (Number(usd) || 0).toFixed(6);
+            return td;
+          };
+
+          // 范围内合计 / 日均 / 均价，一眼看总计
+          const rd0 = state.rangeData;
+          if (rd0 && rd0.ok && rd0.days.length) {
+            const tt = rd0.totals;
+            const sumLine = el('div', undefined, 'tb-rangesum');
+            const facts = [
+              ['合计', money(tt.cost) + '（' + rd0.days.length + ' 天）'],
+              ['日均', money(tt.avgPerDay)],
+              ['平均每次', money(tt.avgPerCall)],
+              ['均价', money(tt.perMillion) + '/百万'],
+              ['高峰占比', fmtPct(tt.peakShare || 0, 0)],
+            ];
+            for (const [k, v] of facts) {
+              const it = el('span', undefined, 'tb-rangesum-item');
+              it.append(el('span', k, 'tb-rangesum-k'), el('b', v, 'tb-rangesum-v'));
+              sumLine.append(it);
+            }
+            if (tt.estCost > 0) {
+              const it = el('span', undefined, 'tb-rangesum-item');
+              it.append(el('span', '含估算', 'tb-rangesum-k'), el('b', money(tt.estCost), 'tb-rangesum-v'));
+              sumLine.append(it);
+            }
+            histCard.append(sumLine);
+          }
+
           const tbl1 = el('table', undefined, 'tb-table');
           const thead1 = el('thead');
           const trh = el('tr');
-          for (const h of ['日期', '调用数量', '总 token', '输入 token', '输出 token', '缓存命中', '命中率']) {
+          for (const h of ['日期', '调用数量', '总 token', '输入 token', '输出 token', '缓存命中', '命中率', '消费', '高峰']) {
             trh.append(el('th', h));
           }
           thead1.append(trh);
@@ -3833,7 +4189,9 @@ export default {
                 el('td', fmtCn(s.input)),
                 el('td', fmtCn(s.output)),
                 el('td', fmtCn(s.hit)),
-                el('td', s.input > 0 ? fmtPct(s.hit / s.input) : '—')
+                el('td', s.input > 0 ? fmtPct(s.hit / s.input) : '—'),
+                costTd(s.cost),
+                costTd(s.costPeak)
               );
               tbody1.append(tr);
             }
@@ -3846,7 +4204,9 @@ export default {
               el('td', fmtCn(t.input)),
               el('td', fmtCn(t.output)),
               el('td', fmtCn(t.hit)),
-              el('td', t.input > 0 ? fmtPct(t.hit / t.input) : '—')
+              el('td', t.input > 0 ? fmtPct(t.hit / t.input) : '—'),
+              costTd(t.cost),
+              costTd(t.costPeak)
             );
             tbody1.append(trF);
 
@@ -3873,7 +4233,9 @@ export default {
               el('td', fmtCn(t.input / nDays)),
               el('td', fmtCn(t.output / nDays)),
               el('td', fmtCn(t.hit / nDays)),
-              el('td', rate(t.hit, t.input))
+              el('td', rate(t.hit, t.input)),
+              costTd(t.cost / nDays, '日均消费'),
+              costTd(t.costPeak / nDays, '日均高峰消费')
             );
             tbody1.append(avgRow);
 
@@ -3885,18 +4247,26 @@ export default {
               el('td', fmtCn(med(ds.map((x) => x.input)))),
               el('td', fmtCn(med(ds.map((x) => x.output)))),
               el('td', fmtCn(med(ds.map((x) => x.hit)))),
-              el('td', rateMed)
+              el('td', rateMed),
+              costTd(med(ds.map((x) => Number(x.cost) || 0)), '单日中位消费'),
+              costTd(med(ds.map((x) => Number(x.costPeak) || 0)), '单日中位高峰消费')
             );
             tbody1.append(medRow);
           } else {
             const tr = el('tr');
             tr.append(el('td', rd && rd.message ? '加载失败：' + rd.message : '这个范围还没有记录', 'tb-mono'));
-            for (let i = 0; i < 6; i++) tr.append(el('td', '—'));
+            for (let i = 0; i < 8; i++) tr.append(el('td', '—'));
             tbody1.append(tr);
           }
           tbl1.append(tbody1);
           histCard.append(tbl1);
-          histCard.append(el('div', '点日期可切换查看那一天；命中率 = 缓存命中 ÷ 输入；日均 = 合计 ÷ 有记录天数，中位数按天取中位。', 'tb-tblnote'));
+          histCard.append(
+            el(
+              'div',
+              '点日期可切换查看那一天；命中率 = 缓存命中 ÷ 输入；日均 = 合计 ÷ 有记录天数，中位数按天取中位；消费含按官方价目表估算的缺报价记录。',
+              'tb-tblnote'
+            )
+          );
           tables.append(histCard);
 
           // ---- 模型分布（按所选日期） ----
@@ -3905,7 +4275,7 @@ export default {
           const tbl2 = el('table', undefined, 'tb-table');
           const thead2 = el('thead');
           const trh2 = el('tr');
-          for (const h of ['模型', '调用', '词元（输入+输出）', '输入', '输出', '缓存命中']) {
+          for (const h of ['模型', '调用', '词元（输入+输出）', '输入', '输出', '缓存命中', '消费', '均价/百万']) {
             trh2.append(el('th', h));
           }
           thead2.append(trh2);
@@ -3914,13 +4284,22 @@ export default {
           const models = d.models.slice(0, 14);
           for (const mo of models) {
             const tr = el('tr');
+            const costCell = costTd(
+              mo.cost,
+              (mo.estCalls ? mo.estCalls + ' 次估算' : '') + (mo.unknownCalls ? ' · ' + mo.unknownCalls + ' 次未计价' : '')
+            );
+            const perM = mo.total > 0 ? (mo.cost / mo.total) * 1e6 : null;
+            const perCell = el('td', perM == null ? '—' : money(perM));
+            perCell.title = '按 ' + moneyAlt(mo.cost || 0) + ' / ' + fmtCn(mo.total) + ' token';
             tr.append(
               el('td', mo.model, 'tb-mono'),
               el('td', fmtInt(mo.calls)),
               el('td', fmtCn(mo.total)),
               el('td', fmtCn(mo.input)),
               el('td', fmtCn(mo.output)),
-              el('td', fmtCn(mo.hit))
+              el('td', fmtCn(mo.hit)),
+              costCell,
+              perCell
             );
             tbody2.append(tr);
           }
@@ -3928,6 +4307,7 @@ export default {
             const rest = d.models.slice(14);
             const sum = rest.reduce((a, b) => a + b.total, 0);
             const calls = rest.reduce((a, b) => a + b.calls, 0);
+            const cost = rest.reduce((a, b) => a + (Number(b.cost) || 0), 0);
             const tr = el('tr', undefined, 'muted');
             tr.append(
               el('td', '其他 ' + rest.length + ' 个模型'),
@@ -3935,13 +4315,21 @@ export default {
               el('td', fmtCn(sum)),
               el('td', '—'),
               el('td', '—'),
-              el('td', '—')
+              el('td', '—'),
+              costTd(cost),
+              el('td', sum > 0 ? money((cost / sum) * 1e6) : '—')
             );
             tbody2.append(tr);
           }
           tbl2.append(tbody2);
           modelCard.append(tbl2);
-          modelCard.append(el('div', '按所选日期统计，只统计 Coopanion 本机日志里出现过的调用。', 'tb-tblnote'));
+          modelCard.append(
+            el(
+              'div',
+              '按所选日期统计，只统计本机日志里出现过的调用；「未计价」= 价目表里没有该模型且日志没带官方报价，可在 config.json 的 worlds.tokenboard.pricing.models 里补价。',
+              'tb-tblnote'
+            )
+          );
           tables.append(modelCard);
         }
 
